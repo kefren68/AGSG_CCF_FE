@@ -269,18 +269,4 @@ Have fun with your Gamestation Go!
 — **Kefren68**
 
 
-==============================================================================
-       AGSG CCF FE - REV1.2 - CHANGES
-       Gamestation Go Custom Frontend Launcher
-==============================================================================
 
-- Fixed choppy sound in video preview
-- Fixed HDMI issue that prevent the launcher to be displayed in full screen
-- Fixed HDMI issue causing black screen when exiting a game
-- Fixed wireless gamepad not working
-- Added a sound when a game is added to Favorites
-- Added Themes support, now the user can make his own theme and place it inside theme folder
-- Added the ability to choose the theme directly from the launcher GUI
-- Added the ability to choose some elements to Hide/Display
-- Added fast scrolling in sytem menu and game list
-- Fixed some graphic bugs
