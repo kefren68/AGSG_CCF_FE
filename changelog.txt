@@ -26,3 +26,20 @@ Note: sound on video preview is a little choppy, try to fix in next releases
 - Added fast scrolling in sytem menu and game list
 - Fixed some graphic bugs
 
+
+
+==============================================================================
+       AGSG CCF FE - REV1.3 - CHANGES
+       Atari Gamestation Go Community Custom Firmware Frontend Launcher
+==============================================================================
+
+- Added ability to change shadows color
+- Added the ability to change shadows offsets
+- System image shadow in menu carousel now is indipendent from text and icons shadows
+- Added vertical scrolling theme option
+- Added the ability to set x and y coordinates of the help bars independently
+- Fixed a bug that caused launcher crash whith some videos preview
+- Added support for jpg systems background
+- Added background music (1 and 3 buttons on the keypad to play prev or next track)
+- Added the ability to hide folders with space-separated names
+
