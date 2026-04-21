@@ -41,16 +41,19 @@ The final structure should look like this:
         ├── launcher.sh                 ← Startup wrapper
         ├── extensions_cfg.txt          ← System/extension configuration
         ├── favorites.txt               ← Auto-created at runtime
+        ├── display_settings.txt        ← Objects to show/hide
+        ├── theme_active.txt            ← Last Theme used
         │
-        ├── images/                     ← UI icons and backgrounds (all PNG)
-        ├── sounds/                     ← Sound effects (WAV)
-        ├── fonts/                      ← Font files (TTF/OTF)
         ├── libs/                       ← Shared ARM libraries
         │
         └── themes/
             └── default/
                 ├── bg/                 ← Carousel and list backgrounds
                 ├── systems/            ← Console/device images
+                ├── controllers/        ← Controllers images
+                ├── fonts/              ← Console/device images
+                ├── sounds/             ← System sounds
+                ├── images/             ← System images
                 └── logos/              ← System logos
 ```
 
