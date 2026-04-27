@@ -54,6 +54,7 @@ The final structure should look like this:
                 ├── fonts/              ← Console/device images
                 ├── sounds/             ← System sounds
                 ├── images/             ← System images
+                ├── music/              ← System music
                 └── logos/              ← System logos
 ```
 
