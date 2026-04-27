@@ -1,0 +1,55 @@
+# Be sure the system name is the folder name in your Games directory
+
+Amiga:zip,adf
+Amstrad CPC:zip
+Atari 800:zip
+Atari 2600:a26
+Atari 2600 Paddle:a26
+Atari 5200:a52
+Atari 7800:a78
+Atari Lynx:lnx
+Atari ST:zip
+Cannonball:zip
+Cave Story:bin
+ColecoVision:bin,zip
+Commodore 64:zip
+Doom:zip
+Game and Watch:zip
+Gameboy:gb
+Gameboy Advance:gba
+Gameboy Color:gbc
+Intellivision:int
+Mame:zip
+Microvision:bin
+MSX:zip
+Neo Geo:zip
+Neo Geo Pocket Color:ngc
+NES:nes
+Odyssey2:bin
+PC Engine:pce
+PC Engine CD:chd
+pico8:zip
+PlayStation:pbp
+ScummVM:zip
+Sega 32x:zip
+Sega CD:bin
+Sega Game Gear:gg
+Sega Genesis:bin,md
+Sega Master System:sms
+SG 1000:zip
+Sharp X1:zip
+SNES:smc,sfc
+ti99sim:zip
+Vectrex:zip
+Virtualboy:zip
+WonderSwan Color:wsc,ws
+XRick:zip
+ZX Spectrum:zip
+
+# --hide dirs
+
+_hide_dirs:boxart,videos,gamelist.xml
+
+
+
+
