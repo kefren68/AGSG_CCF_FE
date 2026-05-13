@@ -1,6 +1,6 @@
 ==============================================================================
        AGSG CCF FE - REV1.1 - CHANGES
-       Gamestation Go Custom Frontend Launcher
+       Atari Gamestation Go Community Custom Firmware Frontend Launcher
 ==============================================================================
 
 - Fixed a bug that caused the program to crash with heavy video previews in boxart
@@ -12,7 +12,7 @@ Note: sound on video preview is a little choppy, try to fix in next releases
 
 ==============================================================================
        AGSG CCF FE - REV1.2 - CHANGES
-       Gamestation Go Custom Frontend Launcher
+       Atari Gamestation Go Community Custom Firmware Frontend Launcher
 ==============================================================================
 
 - Fixed choppy sound in video preview
@@ -25,7 +25,6 @@ Note: sound on video preview is a little choppy, try to fix in next releases
 - Added the ability to choose some elements to Hide/Display
 - Added fast scrolling in sytem menu and game list
 - Fixed some graphic bugs
-
 
 
 ==============================================================================
@@ -42,4 +41,24 @@ Note: sound on video preview is a little choppy, try to fix in next releases
 - Added support for jpg systems background
 - Added background music (1 and 3 buttons on the keypad to play prev or next track)
 - Added the ability to hide folders with space-separated names
+- Maybe something else i don't remember right now :)
 
+
+==============================================================================
+       AGSG CCF FE - REV1.4 - CHANGES
+       Atari Gamestation Go Community Custom Firmware Frontend Launcher
+==============================================================================
+
+- Fixed a bug on game counts not ignoring hidden folders
+- Fixed a bug causing video music not stopping when returning to carousel menu
+- Added an option in extensions_cfg.txt to change HOME button action
+- Added an option in extensions_cfg.txt to choose to display rom names or game name in game list
+- Added volume control with 7 & 9 on keypad (ricordati di ringraziare orangekryptonite per i suoi feedback)
+- Added marquee support for themes
+- Added "SuperFolders" support
+- Fixed power led not blinking ( ringraziare ImaginaryRulebook per la segnalazione )
+- Added 3dBox style themes (ricordarsi di dare credito a Sheezie Sheezie2-Clean per il tema GSG e a Snapouille Nomad-DX per il tema FunMachines)
+- Fixed led lights not working correctly issue 
+- Added search menu for system and games - press X to open it
+- Added an option in extensions_cfg.txt to choose to display rom names or game name in game search
+- Added an option to delete games directly from the search menu (this will also delete gamelist.xml entries for that game)
