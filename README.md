@@ -1,22 +1,21 @@
-================================================================================
+
   AGSG CCF FE — User Guide
   Installation, Folder Structure, Features & Controls
-================================================================================
+==========================================
 
   Last updated: May 2026
 
 
-────────────────────────────────────────────────────────────────────────────────
 WHAT IS AGSG CCF FE?
-────────────────────────────────────────────────────────────────────────────────
+
 AGSG CCF FE (Custom Classic Frontend) is a graphical game launcher for the
 Atari Gamestation Go. It displays your ROM library organized by system, with
 boxart, video previews, wheel logos, background music, and a theming system.
 
 
-────────────────────────────────────────────────────────────────────────────────
+
 1. REQUIREMENTS
-────────────────────────────────────────────────────────────────────────────────
+
 - Gamestation Go (GSG) handheld console
 - SD card with ROMs already configured
 - Launcher folder inside games folder
@@ -24,9 +23,9 @@ boxart, video previews, wheel logos, background music, and a theming system.
 - A VEEERY big capacity sd card if you think to add a lot of boxarts/videos/3dboxes/screenshots
 
 
-────────────────────────────────────────────────────────────────────────────────
+
 2. INSTALLATION
-────────────────────────────────────────────────────────────────────────────────
+
 Copy the entire AGSG_CCF_FE/ folder to the SD card inside bin folder
 
   /sdcard/bin/AGSG_CCF_FE/
@@ -43,9 +42,7 @@ That's it. No additional setup is needed — the launcher auto-detects all
 content on first run.
 
 
-────────────────────────────────────────────────────────────────────────────────
 3. FOLDER STRUCTURE
-────────────────────────────────────────────────────────────────────────────────
 
 /sdcard/
 ├── Games/                              (ROMs root - can be lowercase)
@@ -98,9 +95,8 @@ Notes:
   • The "default" theme is used as a fallback for any missing asset.
 
 
-────────────────────────────────────────────────────────────────────────────────
 4. FIRST RUN
-────────────────────────────────────────────────────────────────────────────────
+
 1. Make sure Games/ has at least one system folder with ROMs inside.
 2. Make sure extensions_cfg.txt lists the file extensions for each system.
 3. Make sure a "default" theme folder exists in themes/.
@@ -115,9 +111,7 @@ The launcher will:
   • Start playing background music if music files are present in the theme.
 
 
-────────────────────────────────────────────────────────────────────────────────
 5. CONTROLS — CAROUSEL (system selection screen)
-────────────────────────────────────────────────────────────────────────────────
 
   ←  /  →          Previous / Next system
                     (↑ / ↓ in vertical carousel mode)
@@ -137,9 +131,8 @@ The launcher will:
                     (auto-advances every ~80 ms)
 
 
-────────────────────────────────────────────────────────────────────────────────
+
 6. CONTROLS — GAME LIST
-────────────────────────────────────────────────────────────────────────────────
 
   ↑  /  ↓           Previous / Next game
 
@@ -175,9 +168,8 @@ Media fallback chain (in order of priority):
      Shown when neither boxart, screenshot, nor video is found.
 
 
-────────────────────────────────────────────────────────────────────────────────
 7. FAVORITES
-────────────────────────────────────────────────────────────────────────────────
+
   • "FAVORITES" is always the first entry in the carousel.
   • Press Y on any game in any system to add it to favorites.
   • Press Y again to remove it.
@@ -189,9 +181,8 @@ Media fallback chain (in order of priority):
   • Favorites are saved to AGSG_CCF_FE/favorites.txt automatically.
 
 
-────────────────────────────────────────────────────────────────────────────────
 8. GAMELIST.XML — GAME METADATA
-────────────────────────────────────────────────────────────────────────────────
+
 Optionally place a gamelist.xml file in each system's Games/ folder.
 It provides display names, descriptions, genre, developer, rating, etc.
 
@@ -217,9 +208,8 @@ The AGSG CCF FE Scraper tool can generate this file and download all media
 automatically from ScreenScraper.fr.
 
 
-────────────────────────────────────────────────────────────────────────────────
 9. THEMES
-────────────────────────────────────────────────────────────────────────────────
+
 Changing theme:
   1. In the carousel, press SELECT.
   2. The THEME / DISPLAY popup opens.
@@ -288,9 +278,8 @@ Notable theme.cfg options:
     when show_desc=1. Uses the same format as Emulation Station descriptions.
 
 
-────────────────────────────────────────────────────────────────────────────────
 10. BACKGROUND MUSIC
-────────────────────────────────────────────────────────────────────────────────
+
   • Music plays automatically when the carousel is shown.
   • Music stops when you enter a game list.
   • Supported formats: .mp3  .ogg  .wav  .flac  .m4a
@@ -307,9 +296,8 @@ Controls (carousel only):
   Music can be toggled from SELECT → DISPLAY → "Music in carousel".
 
 
-────────────────────────────────────────────────────────────────────────────────
 11. VOLUME CONTROL
-────────────────────────────────────────────────────────────────────────────────
+
   Volume Up    Joystick btn 16  (Keypad 9)
   Volume Down  Joystick btn 14  (Keypad 7)
 
@@ -318,9 +306,8 @@ Controls (carousel only):
   A volume icon appears on screen for 2 seconds after each change.
 
 
-────────────────────────────────────────────────────────────────────────────────
 12. EXTENSIONS_CFG.TXT
-────────────────────────────────────────────────────────────────────────────────
+
 This file tells the launcher which file extensions belong to each system
 and controls some global options.
 
@@ -349,9 +336,8 @@ Special options (one per line):
       Show game names from gamelist.xml instead of filenames.
 
 
-────────────────────────────────────────────────────────────────────────────────
 13. HOME BUTTON MODES
-────────────────────────────────────────────────────────────────────────────────
+
 Set with _home_mode:N in extensions_cfg.txt.
 
   0   HOME does nothing
@@ -360,10 +346,8 @@ Set with _home_mode:N in extensions_cfg.txt.
   3   Like 2, but also highlights FAVORITES when returning to the carousel
 
 
-
-────────────────────────────────────────────────────────────────────────────────
 14. HDMI OUTPUT
-────────────────────────────────────────────────────────────────────────────────
+
 The launcher automatically detects whether an HDMI cable is connected at
 startup. When HDMI is detected:
 
@@ -383,9 +367,8 @@ Supported systems in HDMI mode as far (folder names, case-insensitive):
 No configuration is needed — HDMI detection is automatic.
 
 
-────────────────────────────────────────────────────────────────────────────────
 15. SUPERFOLDERS
-────────────────────────────────────────────────────────────────────────────────
+
 SuperFolders let you group multiple systems under virtual folder entries in
 the carousel (e.g., "Atari", "Sega", "Nintendo").
 
@@ -423,9 +406,9 @@ Rules:
 A SuperFolders.txt by OrangeKryptonite file is already inside AGSG_CCF_FE with commented names(#).
 You need to just uncomment the name if you want to use it.
 
-────────────────────────────────────────────────────────────────────────────────
+
 16. 3D BOX VIEW (GAME LIST)
-────────────────────────────────────────────────────────────────────────────────
+
 When enabled, the game list replaces the standard boxart panel with an
 animated 3D box-art carousel, showing the current and adjacent box covers
 with a perspective effect.
@@ -461,9 +444,8 @@ standard game list:
   ↑ / ↓   Switch to previous / next system
 
 
-────────────────────────────────────────────────────────────────────────────────
 17. CRT OVERLAY
-────────────────────────────────────────────────────────────────────────────────
+
 A CRT scanline effect can be rendered over the boxart/video area to simulate
 the look of a cathode-ray tube monitor.
 
@@ -487,9 +469,8 @@ The overlay image is blended on top of the media using SDL alpha blending,
 so a semi-transparent PNG with scanline rows produces the best effect.
 
 
-────────────────────────────────────────────────────────────────────────────────
 18. BOXART OVERLAY
-────────────────────────────────────────────────────────────────────────────────
+
 When a video is playing (or when the 3D box view is enabled), the standard
 boxart panel is replaced by the video/3D view. The boxart overlay lets you
 display a small boxart thumbnail on top of the video or 3D box area.
@@ -514,17 +495,15 @@ for game entries (not folder entries). It falls back gracefully if boxart
 is not available for the selected game.
 
 
-────────────────────────────────────────────────────────────────────────────────
 19. LAUNCHER.SH
-────────────────────────────────────────────────────────────────────────────────
+
 You will find a launcher_b.sh inside the AGSG_CCF_FE folder.
 This launcher from Buckysrevenge let you return to the LOCAL STORAGE / MICRO SD CARD menu when you press HOME button.
 To apply this function, the HOME function in extensions.cfg must be set to 1 (exit launcher)
 To use the launcher_b.sh, simply rename it in launcher.sh (you have to delete or rename your existing launcher.sh)
 
-────────────────────────────────────────────────────────────────────────────────
+
 APPENDIX — QUICK CONTROLS REFERENCE
-────────────────────────────────────────────────────────────────────────────────
 
 CAROUSEL
   ← →           Previous / next system  (↑ ↓ in vertical carousel mode)
@@ -559,4 +538,3 @@ THEME MENU (SELECT)
   B             Close menu
 
 
-================================================================================
