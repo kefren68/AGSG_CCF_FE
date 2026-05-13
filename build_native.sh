@@ -26,8 +26,10 @@ if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
 fi
 
 # Compile natively, pointing base_p to the project directory
+BUILD_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 g++ "$PROJECT_DIR/$SOURCE_FILE" -o "$PROJECT_DIR/$OUTPUT_BINARY" \
     -DNATIVE_BASE_PATH \
+    "-DBUILD_TIMESTAMP=\"$BUILD_TS\"" \
     $(sdl2-config --cflags --libs) \
     -lSDL2_image \
     -lavformat -lavcodec -lswresample -lswscale -lavutil \

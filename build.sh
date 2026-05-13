@@ -21,9 +21,12 @@ if ! sudo docker image inspect "$DOCKER_IMAGE" > /dev/null 2>&1; then
 fi
 
 # Build
+BUILD_TS="$(date '+%Y-%m-%d %H:%M:%S')"
+
 sudo docker run --rm -v "$PROJECT_DIR":/build "$DOCKER_IMAGE" \
   bash -c "cd /build && \
     arm-linux-gnueabihf-g++ $SOURCE_FILE -o $OUTPUT_BINARY \
+    \"-DBUILD_TIMESTAMP=\\\"$BUILD_TS\\\"\" \
     -march=armv7-a -mfloat-abi=hard -mfpu=neon \
     -I/usr/include/arm-linux-gnueabihf/SDL2 \
     -L/usr/lib/arm-linux-gnueabihf \
@@ -47,6 +50,9 @@ if [ -f "$PROJECT_DIR/$OUTPUT_BINARY" ]; then
     echo ""
     echo "🖥️  Building native preview binary..."
     bash "$PROJECT_DIR/build_native.sh"
+    echo ""
+    echo "🖥️  Building cross-platform preview binary..."
+    bash "$PROJECT_DIR/build_preview.sh"
     exit 0
 else
     echo ""
