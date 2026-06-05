@@ -1,21 +1,23 @@
 
+  ================================================================================
   AGSG CCF FE — User Guide
   Installation, Folder Structure, Features & Controls
-==========================================
+================================================================================
 
-  Last updated: Revision 1.4 05/12/26
+  Last updated: May 21 2026
 
 
+────────────────────────────────────────────────────────────────────────────────
 WHAT IS AGSG CCF FE?
-
-AGSG CCF FE (Custom Classic Frontend) is a graphical game launcher for the
+────────────────────────────────────────────────────────────────────────────────
+AGSG CCF FE (Community Custom Firmware Frontend) is a graphical game launcher for the
 Atari Gamestation Go. It displays your ROM library organized by system, with
-boxart, video previews, wheel logos, background music, and a theming system.
+boxart, video previews, logos, background music, and a theming system.
 
 
-
+────────────────────────────────────────────────────────────────────────────────
 1. REQUIREMENTS
-
+────────────────────────────────────────────────────────────────────────────────
 - Gamestation Go (GSG) handheld console
 - SD card with ROMs already configured
 - Launcher folder inside games folder
@@ -23,9 +25,9 @@ boxart, video previews, wheel logos, background music, and a theming system.
 - A VEEERY big capacity sd card if you think to add a lot of boxarts/videos/3dboxes/screenshots
 
 
-
+────────────────────────────────────────────────────────────────────────────────
 2. INSTALLATION
-
+────────────────────────────────────────────────────────────────────────────────
 Copy the entire AGSG_CCF_FE/ folder to the SD card inside bin folder
 
   /sdcard/bin/AGSG_CCF_FE/
@@ -42,7 +44,9 @@ That's it. No additional setup is needed — the launcher auto-detects all
 content on first run.
 
 
+────────────────────────────────────────────────────────────────────────────────
 3. FOLDER STRUCTURE
+────────────────────────────────────────────────────────────────────────────────
 
 /sdcard/
 ├── Games/                              (ROMs root - can be lowercase)
@@ -65,17 +69,17 @@ content on first run.
         │
         ├── launcher                  ← executable
         ├── extensions_cfg.txt        ← system/ROM extension mapping (required)
-        ├── SuperFolders.txt          ← optional system grouping (see §15)
+        ├── SuperFolders.txt          ← optional system grouping (see §16)
         ├── favorites.txt             ← saved favorites (auto-created)
         ├── theme_active.txt          ← active theme name (auto-created)
-        ├── display_settings.txt      ← HUD visibility toggles (auto-created)
-        │
+        ├── launcher_options.txt      ← Options toggles (auto-created)
+        ├── lastplayed.txt            ← game history (auto-created)
+        ├── systems_desc.xml          ← system descriptions (carousel)
         │
         └── themes/
             ├── default/              ← fallback theme (required)
             └── <ThemeName>/          ← additional themes
-                ├── theme.cfg         ← layout & color settings
-                ├── systems_desc.xml  ← system descriptions (carousel)
+                ├── theme.cfg         ← layout & color settings           
                 ├── music_last.txt    ← last played track (auto-created per theme)
                 ├── bg/               ← backgrounds  (<system>.png/jpg, default.png)
                 │   └── list_bg.png   ← optional separate game-list background
@@ -83,20 +87,20 @@ content on first run.
                 ├── controllers/      ← controller images (<system>.png, default.png)
                 ├── logos/            ← system logos for the game list
                 ├── images/           ← HUD icons (WiFi, Battery, Favorite, etc.)
-                │   └── crt.png       ← optional CRT scanline overlay (see §17)
+                │   └── crt.png       ← optional CRT scanline overlay (see §18)
                 ├── sounds/           ← UI sounds (click.wav, enter.wav, back.wav, fav.wav)
                 ├── music/            ← background music (.mp3 .ogg .wav .flac .m4a)
                 └── fonts/            ← font file (.ttf or .otf)
 
 Notes:
-  • System folder names inside Games/ become the system names shown in the UI.
   • Image/video filenames must match the ROM filename (without extension),
     case-insensitive.
   • The "default" theme is used as a fallback for any missing asset.
 
 
+────────────────────────────────────────────────────────────────────────────────
 4. FIRST RUN
-
+────────────────────────────────────────────────────────────────────────────────
 1. Make sure Games/ has at least one system folder with ROMs inside.
 2. Make sure extensions_cfg.txt lists the file extensions for each system.
 3. Make sure a "default" theme folder exists in themes/.
@@ -108,10 +112,13 @@ Notes:
 The launcher will:
   • Scan Games/ and show all systems in the carousel.
   • Show "FAVORITES" as the first carousel entry (starts empty).
-  • Start playing background music if music files are present in the theme.
+  • Show "LAST PLAYED" as the last carousel entry (history starts empty).
+  • Start playing background music if music files are present in the theme and music background option is on
 
 
+────────────────────────────────────────────────────────────────────────────────
 5. CONTROLS — CAROUSEL (system selection screen)
+────────────────────────────────────────────────────────────────────────────────
 
   ←  /  →          Previous / Next system
                     (↑ / ↓ in vertical carousel mode)
@@ -122,7 +129,7 @@ The launcher will:
 
   SELECT            Open the Theme / Display settings menu
 
-  HOME              Depends on home_mode setting (see §10)
+  HOME              Depends on home_mode setting (see §14)
 
   1  /  3           Previous / Next music track
   (Keypad 1 / 3)
@@ -131,8 +138,9 @@ The launcher will:
                     (auto-advances every ~80 ms)
 
 
-
+────────────────────────────────────────────────────────────────────────────────
 6. CONTROLS — GAME LIST
+────────────────────────────────────────────────────────────────────────────────
 
   ↑  /  ↓           Previous / Next game
 
@@ -147,14 +155,14 @@ The launcher will:
 
   Y                  Add / Remove game from Favorites
 
-  HOME               Depends on home_mode setting (see §10)
+  HOME               Depends on home_mode setting (see §14)
 
   Held ↑ / ↓        Fast scroll after 2 seconds
 
 In the game list, the right side of the screen shows:
   • Boxart cover (Games/<system>/boxart/<game>.png/jpg)
   • Video preview after 2 seconds (Games/<system>/videos/<game>.mp4 etc.)
-  • Wheel logo / marquee over the video (Games/<system>/marquees/<game>.png)
+  • Marquee over the video (Games/<system>/marquees/<game>.png)
   • Game name, description, and metadata from gamelist.xml (if available)
 
 Media fallback chain (in order of priority):
@@ -168,8 +176,9 @@ Media fallback chain (in order of priority):
      Shown when neither boxart, screenshot, nor video is found.
 
 
+────────────────────────────────────────────────────────────────────────────────
 7. FAVORITES
-
+────────────────────────────────────────────────────────────────────────────────
   • "FAVORITES" is always the first entry in the carousel.
   • Press Y on any game in any system to add it to favorites.
   • Press Y again to remove it.
@@ -181,8 +190,24 @@ Media fallback chain (in order of priority):
   • Favorites are saved to AGSG_CCF_FE/favorites.txt automatically.
 
 
-8. GAMELIST.XML — GAME METADATA
+────────────────────────────────────────────────────────────────────────────────
+8. LAST PLAYED
+────────────────────────────────────────────────────────────────────────────────
+  • "LAST PLAYED" always appears as the last entry in the carousel
+    (after all systems; press → from the last system to reach it).
+  • Every time a game is launched — from any system, FAVORITES, or
+    LAST PLAYED itself — it is automatically added to the history.
+  • The list shows up to 50 entries in reverse chronological order
+    (most recent first), each prefixed with [SYSTEMNAME].
+  • Press Y on any entry inside LAST PLAYED to remove it from history.
+  • The history is saved to /sdcard/lastplayed.txt automatically.
+  • Duplicate entries are avoided: re-launching a game already in the
+    list moves it to the top.
 
+
+────────────────────────────────────────────────────────────────────────────────
+9. GAMELIST.XML — GAME METADATA
+────────────────────────────────────────────────────────────────────────────────
 Optionally place a gamelist.xml file in each system's Games/ folder.
 It provides display names, descriptions, genre, developer, rating, etc.
 
@@ -200,25 +225,41 @@ Minimal format:
     </game>
   </gameList>
 
-To show game names from gamelist.xml in the list (instead of filenames),
-add this line to extensions_cfg.txt:
-  _show_gamelist_names:1
 
 The AGSG CCF FE Scraper tool can generate this file and download all media
 automatically from ScreenScraper.fr.
 
 
-9. THEMES
+────────────────────────────────────────────────────────────────────────────────
+10. THEMES
+────────────────────────────────────────────────────────────────────────────────
+SELECT menu (press SELECT in the carousel):
+  The settings popup has three tabs. Navigate between them with L1 / R1.
 
-Changing theme:
-  1. In the carousel, press SELECT.
-  2. The THEME / DISPLAY popup opens.
-  3. In the THEME tab, scroll through available themes and press A to apply.
-  4. The theme is saved and restored on next launch.
+  THEME tab:
+    ↑ / ↓       Scroll through available themes.
+    A           Apply the selected theme.
+    The theme is saved and restored on next launch.
 
-Display settings:
-  In the DISPLAY tab of the same popup, you can toggle visibility of:
-    WiFi icon, Battery icon, System Name, Help Bar, System Logo, Music.
+  DISPLAY tab — toggle HUD element visibility:
+    WiFi icon        Show/hide the WiFi status icon.
+    Battery icon     Show/hide the battery status icon.
+    Battery %        Show battery percentage next to the icon.
+    Clock            Show current time (HH:MM) in the HUD.
+    Date             Show current date (MM/DD/YYYY) in the HUD.
+    System Name      Show the system name in the carousel.
+    Help Bar         Show the button-hint bar at the bottom.
+    System Logo      Show the system logo in the game list.
+
+  OPTIONS tab — toggle launcher behaviour:
+    Show game names (list)    Show names from gamelist.xml in game list
+                              instead of filenames.
+    Show game names (search)  Show names from gamelist.xml in search results.
+    Music in carousel         Enable/disable background music.
+    Music auto-advance        Automatically play the next track when the
+                              current track ends.
+    Startup volume            Initial volume at launch.
+                              Cycles: mute (−1), 0 %, 5 %, 10 % … 100 %.
 
 Adding a new theme:
   1. Create a new folder in themes/<YourThemeName>/.
@@ -237,9 +278,9 @@ Notable theme.cfg options:
     show_desc=1             Show a system description text below the console image.
     device_shadow_alpha=N   Drop shadow under the console images (0 = off).
 
-  [gamelist_3dbox]          See §16 — 3D Box View.
+  [gamelist_3dbox]          See §17 — 3D Box View.
 
-  [crt_overlay]             See §17 — CRT Overlay.
+  [crt_overlay]             See §18 — CRT Overlay.
 
   [boxart_overlay]          See §19 — Boxart Overlay.
 
@@ -278,8 +319,9 @@ Notable theme.cfg options:
     when show_desc=1. Uses the same format as Emulation Station descriptions.
 
 
-10. BACKGROUND MUSIC
-
+────────────────────────────────────────────────────────────────────────────────
+11. BACKGROUND MUSIC
+────────────────────────────────────────────────────────────────────────────────
   • Music plays automatically when the carousel is shown.
   • Music stops when you enter a game list.
   • Supported formats: .mp3  .ogg  .wav  .flac  .m4a
@@ -293,11 +335,16 @@ Controls (carousel only):
   The track name appears on screen for 3 seconds when it changes.
   The last played track per theme is remembered across sessions.
 
-  Music can be toggled from SELECT → DISPLAY → "Music in carousel".
+  Music can be toggled from SELECT → OPTIONS → "Music in carousel".
+
+  Music auto-advance:
+    When enabled, the next track plays automatically when the current
+    track ends. Toggle from SELECT → OPTIONS → "Music auto-advance".
 
 
-11. VOLUME CONTROL
-
+────────────────────────────────────────────────────────────────────────────────
+12. VOLUME CONTROL
+────────────────────────────────────────────────────────────────────────────────
   Volume Up    Joystick btn 16  (Keypad 9)
   Volume Down  Joystick btn 14  (Keypad 7)
 
@@ -305,9 +352,16 @@ Controls (carousel only):
   Volume has 11 levels (0% to 100% in 10% steps).
   A volume icon appears on screen for 2 seconds after each change.
 
+  Startup volume:
+    The initial volume when the launcher starts can be configured from
+    SELECT → OPTIONS → "Startup volume". It cycles through:
+    mute (OFF), 0 %, 5 %, 10 % … 100 % in 5 % steps.
+    Value OFF means the launcher starts muted.
 
-12. EXTENSIONS_CFG.TXT
 
+────────────────────────────────────────────────────────────────────────────────
+13. EXTENSIONS_CFG.TXT
+────────────────────────────────────────────────────────────────────────────────
 This file tells the launcher which file extensions belong to each system
 and controls some global options.
 
@@ -327,17 +381,18 @@ Special options (one per line):
   _hide_dirs:<folder1>,<folder2>,...
       Folders to hide from game lists (e.g. boxart, videos, marquees).
       Example:  _hide_dirs:boxart,videos,marquees,.metadata
+_hide_dirs_<system name>:<folder1>,<folder2>,...
+      Folders to hide from game lists per system
+      Example:  _hide_dirs_Cannonball:roms
 
   _home_mode:N
-      Controls what the HOME button does (see §13).
+      Controls what the HOME button does (see §14).
       Example:  _home_mode:2
 
-  _show_gamelist_names:1
-      Show game names from gamelist.xml instead of filenames.
 
-
-13. HOME BUTTON MODES
-
+────────────────────────────────────────────────────────────────────────────────
+14. HOME BUTTON MODES
+────────────────────────────────────────────────────────────────────────────────
 Set with _home_mode:N in extensions_cfg.txt.
 
   0   HOME does nothing
@@ -346,8 +401,10 @@ Set with _home_mode:N in extensions_cfg.txt.
   3   Like 2, but also highlights FAVORITES when returning to the carousel
 
 
-14. HDMI OUTPUT
 
+────────────────────────────────────────────────────────────────────────────────
+15. HDMI OUTPUT
+────────────────────────────────────────────────────────────────────────────────
 The launcher automatically detects whether an HDMI cable is connected at
 startup. When HDMI is detected:
 
@@ -367,8 +424,9 @@ Supported systems in HDMI mode as far (folder names, case-insensitive):
 No configuration is needed — HDMI detection is automatic.
 
 
-15. SUPERFOLDERS
-
+────────────────────────────────────────────────────────────────────────────────
+16. SUPERFOLDERS
+────────────────────────────────────────────────────────────────────────────────
 SuperFolders let you group multiple systems under virtual folder entries in
 the carousel (e.g., "Atari", "Sega", "Nintendo").
 
@@ -406,9 +464,9 @@ Rules:
 A SuperFolders.txt by OrangeKryptonite file is already inside AGSG_CCF_FE with commented names(#).
 You need to just uncomment the name if you want to use it.
 
-
-16. 3D BOX VIEW (GAME LIST)
-
+────────────────────────────────────────────────────────────────────────────────
+17. 3D BOX VIEW (GAME LIST)
+────────────────────────────────────────────────────────────────────────────────
 When enabled, the game list replaces the standard boxart panel with an
 animated 3D box-art carousel, showing the current and adjacent box covers
 with a perspective effect.
@@ -444,8 +502,9 @@ standard game list:
   ↑ / ↓   Switch to previous / next system
 
 
-17. CRT OVERLAY
-
+────────────────────────────────────────────────────────────────────────────────
+18. CRT OVERLAY
+────────────────────────────────────────────────────────────────────────────────
 A CRT scanline effect can be rendered over the boxart/video area to simulate
 the look of a cathode-ray tube monitor.
 
@@ -469,8 +528,9 @@ The overlay image is blended on top of the media using SDL alpha blending,
 so a semi-transparent PNG with scanline rows produces the best effect.
 
 
-18. BOXART OVERLAY
-
+────────────────────────────────────────────────────────────────────────────────
+19. BOXART OVERLAY
+────────────────────────────────────────────────────────────────────────────────
 When a video is playing (or when the 3D box view is enabled), the standard
 boxart panel is replaced by the video/3D view. The boxart overlay lets you
 display a small boxart thumbnail on top of the video or 3D box area.
@@ -495,15 +555,17 @@ for game entries (not folder entries). It falls back gracefully if boxart
 is not available for the selected game.
 
 
-19. LAUNCHER.SH
-
+────────────────────────────────────────────────────────────────────────────────
+20. LAUNCHER_B.SH
+────────────────────────────────────────────────────────────────────────────────
 You will find a launcher_b.sh inside the AGSG_CCF_FE folder.
 This launcher from Buckysrevenge let you return to the LOCAL STORAGE / MICRO SD CARD menu when you press HOME button.
 To apply this function, the HOME function in extensions.cfg must be set to 1 (exit launcher)
 To use the launcher_b.sh, simply rename it in launcher.sh (you have to delete or rename your existing launcher.sh)
 
-
+────────────────────────────────────────────────────────────────────────────────
 APPENDIX — QUICK CONTROLS REFERENCE
+────────────────────────────────────────────────────────────────────────────────
 
 CAROUSEL
   ← →           Previous / next system  (↑ ↓ in vertical carousel mode)
@@ -512,7 +574,7 @@ CAROUSEL
   B             Back (from inside a SuperFolder)
   SELECT        Theme & display menu
   1 / 3         Prev / next music track
-  HOME          See §13
+  HOME          See §14
 
 GAME LIST
   ↑ ↓           Previous / next game (← → in 3dbox game list mode)
@@ -521,20 +583,19 @@ GAME LIST
   A             Launch / enter folder
   B             Back
   Y             Add / remove favorite
-  HOME          See §13
+  HOME          See §14
 
 VOLUME (anywhere)
   Btn 14 / Kp7  Volume down
   Btn 16 / Kp9  Volume up
 
-DESKTOP / NATIVE BUILD ONLY
-  F1            Toggle keyboard shortcut help overlay
-  F5            Reload theme.cfg (hot-reload)
-  F11           Toggle fullscreen
-
 THEME MENU (SELECT)
   ↑ ↓           Navigate themes / options
-  A             Apply theme / toggle option
+  A             Apply theme / toggle option / cycle value
   B             Close menu
+  L1 / R1       Switch tab (THEME / DISPLAY / OPTIONS)
+
+
+================================================================================
 
 
