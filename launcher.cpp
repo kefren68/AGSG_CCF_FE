@@ -12,10 +12,12 @@
 #include <sstream>
 #include <map>
 #include <cctype>
+#include <cstdio>
 #include <signal.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #ifndef CROSS_PLATFORM
 #include <linux/input.h>
 #endif
@@ -107,7 +109,9 @@ bool music_enabled    = true;
 bool show_gamelist_names = false;    // true = mostra nome da gamelist.xml invece del nome file ROM
 bool show_gamesearch_names = true;   // true = mostra nome gamelist nella ricerca; false = mostra nome ROM
 int  home_mode        = 1;  // 0=disabilitato, 1=esci, 2=torna carousel, 3=torna carousel+Favorites
-int  startup_volume   = -1; // -1=disabilitato, 0-100=percentuale volume da impostare all'avvio
+int  startup_volume     = -1; // -1=disabilitato, 0-100=percentuale volume da impostare all'avvio
+int  startup_brightness = -1; // -1=disabilitato, 10-100=percentuale luminosità da impostare all'avvio
+int  system_sort_order  =  0; // 0=nome sistema, 1=nome cartella, 2=custom (systems_order.xml)
 bool music_autoadvance = false; // true = alla fine di una traccia passa alla successiva
 
 // HDMI detection
@@ -151,6 +155,8 @@ void load_hdmi_systems() {
 
 // Ritorna il percorso base del tema attivo: base_p + "themes/<current_theme>/"
 std::string theme_p() { return base_p + "themes/" + current_theme + "/"; }
+
+std::string get_system_fullname(const std::string& sys_name);
 
 // ---- THEME CONFIG ----
 struct ThemeConfig {
@@ -252,6 +258,20 @@ struct ThemeConfig {
     int   desc_area_h             = 180;
     int   desc_line_h             = 18;
     float desc_scroll_speed       = 0.8f;
+    // [game_meta]
+    bool      game_meta_enabled   = true;
+    int       game_meta_x         = -1;   // -1 = auto (desc_x)
+    int       game_meta_y         = -1;   // -1 = auto (desc_y + desc_area_h + 6)
+    int       game_meta_line_h    = 18;
+    int       game_meta_font_size = 16;
+    SDL_Color game_meta_color     = {200, 200, 200, 255};
+    // [personal_rating]
+    bool      personal_rating_enabled   = true;
+    int       personal_rating_x         = 645;
+    int       personal_rating_y         = 535;
+    int       personal_rating_font_size = 18;
+    int       personal_rating_star_size = 15;
+    SDL_Color personal_rating_color     = {255, 220, 80, 255};
     // [logo]
     int   logo_x                  = 20;
     int   logo_y                  = 5;
@@ -485,6 +505,20 @@ ThemeConfig load_theme_config(const std::string& path) {
                 else if (key == "desc_area_h")     cfg.desc_area_h = std::stoi(val);
                 else if (key == "desc_line_h")     cfg.desc_line_h = std::stoi(val);
                 else if (key == "desc_scroll_speed") cfg.desc_scroll_speed = std::stof(val);
+            } else if (section == "game_meta") {
+                if      (key == "enabled")   cfg.game_meta_enabled = (val != "0" && val != "false");
+                else if (key == "x")         cfg.game_meta_x = std::stoi(val);
+                else if (key == "y")         cfg.game_meta_y = std::stoi(val);
+                else if (key == "line_h")    cfg.game_meta_line_h = std::max(10, std::stoi(val));
+                else if (key == "font_size") cfg.game_meta_font_size = std::max(10, std::stoi(val));
+                else if (key == "color")     cfg.game_meta_color = parse_color(val);
+            } else if (section == "personal_rating") {
+                if      (key == "enabled")   cfg.personal_rating_enabled = (val != "0" && val != "false");
+                else if (key == "x")         cfg.personal_rating_x = std::stoi(val);
+                else if (key == "y")         cfg.personal_rating_y = std::stoi(val);
+                else if (key == "font_size") cfg.personal_rating_font_size = std::max(10, std::stoi(val));
+                else if (key == "star_size") cfg.personal_rating_star_size = std::max(8, std::stoi(val));
+                else if (key == "color")     cfg.personal_rating_color = parse_color(val);
             } else if (section == "logo") {
                 if      (key == "x")               cfg.logo_x = std::stoi(val);
                 else if (key == "y")               cfg.logo_y = std::stoi(val);
@@ -609,6 +643,20 @@ static int resolve_music_track_index(const std::vector<std::string>& tracks, con
     return 0;
 }
 
+static void apply_screen_brightness(int percent) {
+    const char* bl_path = "/sys/class/backlight/backlight";
+    char max_path[256], br_path[256];
+    snprintf(max_path, sizeof(max_path), "%s/max_brightness", bl_path);
+    snprintf(br_path,  sizeof(br_path),  "%s/brightness",     bl_path);
+    int max_val = 255;
+    { std::ifstream mf(max_path); if (mf) mf >> max_val; }
+    if (max_val <= 0) max_val = 255;
+    int val = percent * max_val / 100;
+    if (val < 1) val = 1;
+    std::ofstream bf(br_path);
+    if (bf) bf << val << "\n";
+}
+
 void save_options_settings() {
     std::ofstream f(base_p + "launcher_options.txt");
     if (!f) return;
@@ -625,7 +673,9 @@ void save_options_settings() {
     f << "show_gamelist_names="   << (show_gamelist_names   ? 1 : 0) << "\n";
     f << "show_gamesearch_names=" << (show_gamesearch_names ? 1 : 0) << "\n";
     f << "music_autoadvance="     << (music_autoadvance     ? 1 : 0) << "\n";
-    f << "startup_volume="        << startup_volume << "\n";
+    f << "startup_volume="        << startup_volume        << "\n";
+    f << "startup_brightness="    << startup_brightness    << "\n";
+    f << "system_sort_order="     << system_sort_order     << "\n";
 }
 void load_options_settings() {
     std::ifstream f(base_p + "launcher_options.txt");
@@ -647,6 +697,12 @@ void load_options_settings() {
         else if (line.rfind("music_autoadvance=",     0) == 0) music_autoadvance     = line.substr(18) != "0";
         else if (line.rfind("startup_volume=",        0) == 0) {
             try { int v = std::stoi(line.substr(15)); startup_volume = (v >= 0 && v <= 100) ? v : -1; } catch (...) {}
+        }
+        else if (line.rfind("startup_brightness=",    0) == 0) {
+            try { int v = std::stoi(line.substr(19)); startup_brightness = (v >= 10 && v <= 100) ? v : -1; } catch (...) {}
+        }
+        else if (line.rfind("system_sort_order=",     0) == 0) {
+            try { int v = std::stoi(line.substr(18)); system_sort_order = (v >= 0 && v <= 2) ? v : 0; } catch (...) {}
         }
     }
 }
@@ -695,10 +751,33 @@ void load_superfolders() {
     }
 }
 
+// Forward decl — implementazione dopo load_systems_desc
+std::vector<std::string> systems_custom_order;
+static bool compare_systems(const MenuItem& a, const MenuItem& b);
+
 std::vector<MenuItem> items_from_sfnode(const SuperFolderNode& node) {
     std::vector<MenuItem> result;
     for (const auto& sf : node.sub_folders) result.push_back({sf.name, true, true});
-    for (const auto& sys : node.systems)    result.push_back({sys,     true, false});
+    std::vector<std::string> systems = node.systems;
+    if (system_sort_order == 2 && !systems_custom_order.empty()) {
+        // Custom: ordina secondo systems_custom_order, i non trovati vanno in fondo
+        std::vector<std::string> ordered, rest;
+        for (const auto& s : systems_custom_order)
+            for (const auto& sys : systems)
+                if (sys == s) { ordered.push_back(sys); break; }
+        for (const auto& sys : systems) {
+            bool found = std::find(ordered.begin(), ordered.end(), sys) != ordered.end();
+            if (!found) rest.push_back(sys);
+        }
+        systems = ordered;
+        systems.insert(systems.end(), rest.begin(), rest.end());
+    } else {
+        std::sort(systems.begin(), systems.end(), [](const std::string& a, const std::string& b) {
+            MenuItem ma{a,true,false}, mb{b,true,false};
+            return compare_systems(ma, mb);
+        });
+    }
+    for (const auto& sys : systems) result.push_back({sys, true, false});
     return result;
 }
 
@@ -811,6 +890,8 @@ std::string find_font_path() {
 // --- TEXT RENDERING (TTF + bitmap fallback) ---
 std::map<int, TTF_Font*> font_cache;
 SDL_Texture* font_tex = nullptr;
+SDL_Texture* tex_star_filled = nullptr;
+SDL_Texture* tex_star_empty  = nullptr;
 bool ttf_available = false;
 
 #ifdef CROSS_PLATFORM
@@ -1096,6 +1177,7 @@ std::vector<std::string> scan_themes() {
 
 // Forward declaration (defined after show_theme_selector)
 void load_systems_desc();
+std::string get_system_fullname(const std::string& sys_name);
 
 // Forward declarations for audio (defined later in the file)
 extern SoundSample s_click, s_enter, s_back, s_fav;
@@ -1159,7 +1241,7 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
         {"Music auto-advance",       &music_autoadvance},
     };
     const int opt_bool_count = 4;
-    const int opt_count = 5; // 4 bool + 1 int (volume)
+    const int opt_count = 7; // 4 bool + 1 int (volume) + 1 int (brightness) + 1 int (sort order)
     int opt_sel = 0;
 
     SDL_Texture* preview_tex = nullptr;
@@ -1171,6 +1253,77 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
         preview_tex = load_texture_png_jpg(renderer, base_p + "themes/" + t + "/bg/default");
     };
     load_preview(themes[sel]);
+
+    // --- INFO TAB: system information ---
+    struct SysInfo {
+        std::string ip, ssid, sd_free, sd_total,
+                    battery_level, battery_status, ram_free, uptime;
+    };
+    SysInfo sysinfo;
+    Uint32 sysinfo_next_refresh = 0;
+
+    auto refresh_sysinfo = [&]() {
+        sysinfo_next_refresh = SDL_GetTicks() + 5000;
+        auto trim = [](std::string s) -> std::string {
+            while (!s.empty() && (s.back()=='\n'||s.back()=='\r'||s.back()==' ')) s.pop_back();
+            return s;
+        };
+        auto rdfile = [&](const char* p) -> std::string {
+            FILE* f = fopen(p, "r"); if (!f) return "";
+            char buf[256] = {}; fgets(buf, sizeof(buf), f); fclose(f);
+            return trim(std::string(buf));
+        };
+        auto rdcmd = [&](const char* cmd) -> std::string {
+            FILE* f = popen(cmd, "r"); if (!f) return "";
+            char buf[256] = {}; fgets(buf, sizeof(buf), f); pclose(f);
+            return trim(std::string(buf));
+        };
+#ifndef CROSS_PLATFORM
+        sysinfo.ip   = rdcmd("ip route get 1 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i==\"src\") print $(i+1)}' | head -1");
+        sysinfo.ssid = rdcmd("iwgetid wlan0 -r 2>/dev/null");
+        struct statvfs sv;
+        if (statvfs("/sdcard", &sv) == 0) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%.1f GB", (double)sv.f_blocks * sv.f_frsize / 1e9);
+            sysinfo.sd_total = buf;
+            snprintf(buf, sizeof(buf), "%.1f GB", (double)sv.f_bavail * sv.f_frsize / 1e9);
+            sysinfo.sd_free = buf;
+        } else { sysinfo.sd_total = "N/A"; sysinfo.sd_free = "N/A"; }
+        sysinfo.battery_level  = rdfile("/sys/class/power_supply/battery/capacity");
+        if (!sysinfo.battery_level.empty()) sysinfo.battery_level += "%"; else sysinfo.battery_level = "N/A";
+        sysinfo.battery_status = rdfile("/sys/class/power_supply/battery/status");
+        if (sysinfo.battery_status.empty()) sysinfo.battery_status = "N/A";
+        FILE* mf = fopen("/proc/meminfo", "r");
+        if (mf) {
+            long long tot = 0, avail = 0; char line[128];
+            while (fgets(line, sizeof(line), mf)) {
+                long long v = 0;
+                if (sscanf(line, "MemTotal: %lld kB", &v)==1) tot=v;
+                else if (sscanf(line, "MemAvailable: %lld kB", &v)==1) avail=v;
+            }
+            fclose(mf);
+            char buf[64]; snprintf(buf, sizeof(buf), "%lld MB / %lld MB", avail/1024, tot/1024);
+            sysinfo.ram_free = buf;
+        } else sysinfo.ram_free = "N/A";
+        FILE* uf = fopen("/proc/uptime", "r");
+        if (uf) {
+            double up = 0; fscanf(uf, "%lf", &up); fclose(uf);
+            int h=(int)(up/3600), m=(int)((up-h*3600)/60);
+            char buf[32]; snprintf(buf, sizeof(buf), "%dh %02dm", h, m);
+            sysinfo.uptime = buf;
+        } else sysinfo.uptime = "N/A";
+#else
+        sysinfo.ip             = "192.168.1.100";
+        sysinfo.ssid           = "MyWiFi";
+        sysinfo.sd_total       = "32.0 GB";
+        sysinfo.sd_free        = "18.5 GB";
+        sysinfo.battery_level  = "75%";
+        sysinfo.battery_status = "Discharging";
+        sysinfo.ram_free       = "256 MB / 512 MB";
+        sysinfo.uptime         = "1h 23m";
+#endif
+    };
+    refresh_sysinfo();
 
     bool changed = false;
     bool open = true;
@@ -1186,8 +1339,8 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                 if (SDL_GetTicks() < next_input) continue;
                 int btn = ev.jbutton.button;
                 // L1 (btn 2) → prev tab,  R1 (btn 5) → next tab
-                if (btn == 2) { tab = (tab + 2) % 3; play_sound(s_click); next_input = SDL_GetTicks() + 200; }
-                else if (btn == 5) { tab = (tab + 1) % 3; play_sound(s_click); next_input = SDL_GetTicks() + 200; }
+                if (btn == 2) { tab = (tab + 3) % 4; play_sound(s_click); next_input = SDL_GetTicks() + 200; }
+                else if (btn == 5) { tab = (tab + 1) % 4; play_sound(s_click); next_input = SDL_GetTicks() + 200; }
                 else if (tab == 0) {
                     if (btn == 29 || btn == 30) {
                         sel = (sel - 1 + (int)themes.size()) % (int)themes.size();
@@ -1208,6 +1361,10 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                         load_systems_desc(); // Reload system descriptions for new theme
                         if (*list_bg_tex) { SDL_DestroyTexture(*list_bg_tex); *list_bg_tex = nullptr; }
                         *list_bg_tex = load_texture_png_jpg(renderer, theme_p() + "bg/list_bg");
+                        if (tex_star_filled) { SDL_DestroyTexture(tex_star_filled); tex_star_filled = nullptr; }
+                        if (tex_star_empty)  { SDL_DestroyTexture(tex_star_empty);  tex_star_empty  = nullptr; }
+                        tex_star_filled = load_theme_image(renderer, "star_filled.png");
+                        tex_star_empty  = load_theme_image(renderer, "star_empty.png");
                         update_carousel_textures(renderer, carousel_items, carousel_sel,
                                                  bg_cur, dev_cur, dev_prev, dev_next, ctrl_cur);
                         changed = true;
@@ -1228,7 +1385,7 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                         save_options_settings();
                         next_input = SDL_GetTicks() + 200;
                     } else if (btn == 3 || btn == 6) { play_sound(s_back); open = false; }
-                } else { // tab == 2: OPTIONS
+                } else if (tab == 2) { // OPTIONS
                     if (btn == 29 || btn == 30) {
                         opt_sel = (opt_sel - 1 + opt_count) % opt_count;
                         play_sound(s_click);
@@ -1246,15 +1403,26 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                                 else
                                     stop_music();
                             }
-                        } else { // startup_volume: cycle OFF→5→10→...→100→OFF
+                        } else if (opt_sel == opt_bool_count) { // startup_volume: cycle OFF→5→10→...→100→OFF
                             if (startup_volume < 0) startup_volume = 5;
                             else if (startup_volume >= 100) startup_volume = -1;
                             else startup_volume += 5;
+                        } else if (opt_sel == opt_bool_count + 1) { // startup_brightness: cycle OFF→10→20→...→100→OFF
+                            if (startup_brightness < 0) startup_brightness = 10;
+                            else if (startup_brightness >= 100) startup_brightness = -1;
+                            else startup_brightness += 10;
+                            if (startup_brightness > 0) apply_screen_brightness(startup_brightness);
+                        } else { // system_sort_order: cycle 0→1→2→0
+                            system_sort_order = (system_sort_order + 1) % 3;
+                            changed = true;
+                            open = false; // forza ritorno al main loop che ricostruirà il carousel
                         }
                         play_sound(s_click);
                         save_options_settings();
                         next_input = SDL_GetTicks() + 200;
                     } else if (btn == 3 || btn == 6) { play_sound(s_back); open = false; }
+                } else { // tab == 3: INFO (read-only)
+                    if (btn == 3 || btn == 6) { play_sound(s_back); open = false; }
                 }
             }
             if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE) open = false;
@@ -1309,9 +1477,9 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
 
         // --- TAB BAR ---
         int tab_h = theme_cfg.menu_tab_h;
-        int tab_w = bw / 3;
-        const char* tab_labels[] = {"THEME", "DISPLAY", "OPTIONS"};
-        for (int ti = 0; ti < 3; ti++) {
+        int tab_w = bw / 4;
+        const char* tab_labels[] = {"THEME", "DISPLAY", "OPTIONS", "INFO"};
+        for (int ti = 0; ti < 4; ti++) {
             SDL_Rect tr = {bx + ti * tab_w, by, tab_w, tab_h};
             if (ti == tab) SDL_SetRenderDrawColor(renderer, theme_cfg.menu_tab_active_bg.r,   theme_cfg.menu_tab_active_bg.g,   theme_cfg.menu_tab_active_bg.b,   theme_cfg.menu_tab_active_bg.a);
             else           SDL_SetRenderDrawColor(renderer, theme_cfg.menu_tab_inactive_bg.r, theme_cfg.menu_tab_inactive_bg.g, theme_cfg.menu_tab_inactive_bg.b, theme_cfg.menu_tab_inactive_bg.a);
@@ -1441,7 +1609,7 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                     SDL_FreeSurface(s);
                 }
             }
-        } else {
+        } else if (tab == 2) {
             // --- TAB OPTIONS ---
             int row_h = theme_cfg.menu_disp_row_h;
             int start_y = cont_y + 20;
@@ -1452,7 +1620,10 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                     SDL_SetRenderDrawColor(renderer, theme_cfg.menu_highlight.r, theme_cfg.menu_highlight.g, theme_cfg.menu_highlight.b, theme_cfg.menu_highlight.a);
                     SDL_RenderFillRect(renderer, &hl);
                 }
-                const char* item_label = (i < opt_bool_count) ? opt_items[i].label : "Startup volume";
+                const char* item_label = (i < opt_bool_count) ? opt_items[i].label
+                                        : (i == opt_bool_count)     ? "Startup volume"
+                                        : (i == opt_bool_count + 1) ? "Screen brightness"
+                                        : "System sort order";
                 SDL_Color lc = (i == opt_sel) ? theme_cfg.menu_item_selected : theme_cfg.menu_item_normal;
                 if (f22) {
                     SDL_Surface* s = ttf_render_text_blended(f22, item_label, lc);
@@ -1466,16 +1637,23 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                         SDL_FreeSurface(s);
                     }
                 }
-                // Badge: ON/OFF for bool, "OFF"/"XX%" for volume
+                // Badge: ON/OFF for bool, "OFF"/"XX%" for volume/brightness
                 std::string badge_str;
                 SDL_Color badge_col;
                 if (i < opt_bool_count) {
                     bool val = *opt_items[i].flag;
                     badge_str = val ? "ON" : "OFF";
                     badge_col = val ? theme_cfg.menu_badge_on : theme_cfg.menu_badge_off;
-                } else {
+                } else if (i == opt_bool_count) {
                     if (startup_volume < 0) { badge_str = "OFF"; badge_col = theme_cfg.menu_badge_off; }
                     else { badge_str = std::to_string(startup_volume) + "%"; badge_col = theme_cfg.menu_badge_on; }
+                } else if (i == opt_bool_count + 1) {
+                    if (startup_brightness < 0) { badge_str = "OFF"; badge_col = theme_cfg.menu_badge_off; }
+                    else { badge_str = std::to_string(startup_brightness) + "%"; badge_col = theme_cfg.menu_badge_on; }
+                } else {
+                    const char* sort_labels[] = { "By name", "By folder", "Custom" };
+                    badge_str = sort_labels[system_sort_order];
+                    badge_col = theme_cfg.menu_badge_on;
                 }
                 if (f22) {
                     SDL_Surface* s = ttf_render_text_blended(f22, badge_str.c_str(), badge_col);
@@ -1502,6 +1680,48 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                     SDL_FreeSurface(s);
                 }
             }
+        } else { // tab == 3: INFO
+            // Refresh every 5 seconds
+            if (SDL_GetTicks() >= sysinfo_next_refresh) refresh_sysinfo();
+
+            int row_h = theme_cfg.menu_disp_row_h;
+            int ry = cont_y + 14;
+            std::pair<const char*, std::string> info_rows[] = {
+                {"IP Address",  sysinfo.ip.empty()   ? "N/A" : sysinfo.ip},
+                {"WiFi SSID",   sysinfo.ssid.empty() ? "N/A" : sysinfo.ssid},
+                {"SD Total",    sysinfo.sd_total},
+                {"SD Free",     sysinfo.sd_free},
+                {"Battery",     sysinfo.battery_level + " (" + sysinfo.battery_status + ")"},
+                {"RAM",         sysinfo.ram_free},
+                {"Uptime",      sysinfo.uptime},
+            };
+            for (auto& row : info_rows) {
+                if (f22) {
+                    SDL_Color lc = theme_cfg.menu_item_normal;
+                    SDL_Surface* s = ttf_render_text_blended(f22, row.first, lc);
+                    if (s) {
+                        SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+                        if (t) { SDL_Rect r = {bx+20, ry+row_h/2-s->h/2, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+                        SDL_FreeSurface(s);
+                    }
+                    SDL_Color vc = theme_cfg.menu_badge_on;
+                    s = ttf_render_text_blended(f22, row.second.c_str(), vc);
+                    if (s) {
+                        SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+                        if (t) { SDL_Rect r = {bx+bw-s->w-20, ry+row_h/2-s->h/2, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+                        SDL_FreeSurface(s);
+                    }
+                }
+                ry += row_h;
+            }
+            if (f18) {
+                SDL_Surface* s = ttf_render_text_blended(f18, "[B] Close  [L1/R1] Tab", theme_cfg.menu_hint);
+                if (s) {
+                    SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+                    if (t) { SDL_Rect r = {bx+bw/2-s->w/2, by+bh+6, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+                    SDL_FreeSurface(s);
+                }
+            }
         }
 
         SDL_RenderPresent(renderer);
@@ -1522,6 +1742,7 @@ struct GameInfo {
     std::string genre;
     std::string developer;
     std::string publisher;
+    std::string players;
     std::string rating;
     std::string releasedate;
 };
@@ -1574,6 +1795,9 @@ static int show_search_menu(SDL_Renderer* renderer, const std::string& font_path
             }
             return rom_name;
         }
+        // In ricerca sistemi (gamelist == nullptr), usa il fullname definito in systems_desc.xml.
+        if (!gamelist && !items[i].is_superfolder)
+            return get_system_fullname(disp);
         return disp;
     };
 
@@ -2873,6 +3097,165 @@ std::vector<MenuItem> load_lastplayed_as_items() {
     return lp_items;
 }
 
+// --- USER PERSONAL RATINGS (separate XML storage) ---
+std::map<std::string, int> user_ratings; // game_id -> 1..5, 0 means unset
+
+static std::string user_ratings_path() {
+    return base_p + "user_ratings.xml";
+}
+
+static std::string xml_escape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        switch (c) {
+            case '&': out += "&amp;"; break;
+            case '<': out += "&lt;"; break;
+            case '>': out += "&gt;"; break;
+            case '"': out += "&quot;"; break;
+            case '\'': out += "&apos;"; break;
+            default: out += c; break;
+        }
+    }
+    return out;
+}
+
+static std::string extract_attr(const std::string& tag, const std::string& attr) {
+    std::string needle = attr + "=\"";
+    size_t p = tag.find(needle);
+    if (p == std::string::npos) return "";
+    p += needle.size();
+    size_t e = tag.find('"', p);
+    if (e == std::string::npos) return "";
+    return tag.substr(p, e - p);
+}
+
+static std::string xml_unescape(const std::string& s);
+
+void load_user_ratings() {
+    user_ratings.clear();
+    std::ifstream f(user_ratings_path());
+    if (!f.is_open()) return;
+    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    f.close();
+
+    size_t pos = 0;
+    while (pos < content.size()) {
+        size_t gs = content.find("<game", pos);
+        if (gs == std::string::npos) break;
+        size_t ge = content.find('>', gs);
+        if (ge == std::string::npos) break;
+        std::string tag = content.substr(gs, ge - gs + 1);
+        std::string id = xml_unescape(extract_attr(tag, "id"));
+        std::string val = extract_attr(tag, "value");
+        if (!id.empty() && !val.empty()) {
+            try {
+                int v = std::stoi(val);
+                if (v >= 1 && v <= 5) user_ratings[id] = v;
+            } catch (...) {}
+        }
+        pos = ge + 1;
+    }
+}
+
+void save_user_ratings() {
+    const std::string path = user_ratings_path();
+    const std::string tmp = path + ".tmp";
+    std::ofstream f(tmp);
+    if (!f.is_open()) return;
+    f << "<ratings>\n";
+    for (const auto& kv : user_ratings) {
+        if (kv.second < 1 || kv.second > 5) continue;
+        f << "  <game id=\"" << xml_escape(kv.first) << "\" value=\"" << kv.second << "\"/>\n";
+    }
+    f << "</ratings>\n";
+    f.close();
+    std::rename(tmp.c_str(), path.c_str());
+}
+
+static int get_user_rating(const std::string& game_id) {
+    auto it = user_ratings.find(game_id);
+    if (it != user_ratings.end()) return it->second;
+    // Fallback: prova con solo sistema/nomefile (ignora sottocartelle intermedie)
+    // utile quando il game_id in favorites include un subfolder (es. Amiga/0/file.lha)
+    // ma il rating era stato impostato con la vista radice (Amiga/file.lha)
+    size_t first_slash = game_id.find('/');
+    size_t last_slash  = game_id.rfind('/');
+    if (first_slash != std::string::npos && last_slash != first_slash) {
+        std::string fallback = game_id.substr(0, first_slash + 1) + game_id.substr(last_slash + 1);
+        auto it2 = user_ratings.find(fallback);
+        if (it2 != user_ratings.end()) return it2->second;
+    }
+    return 0;
+}
+
+static void set_user_rating(const std::string& game_id, int rating) {
+    if (game_id.empty()) return;
+    if (rating < 0) rating = 0;
+    if (rating > 5) rating = 5;
+    if (rating == 0) user_ratings.erase(game_id);
+    else user_ratings[game_id] = rating;
+    save_user_ratings();
+}
+
+static std::string build_selected_game_id(const std::vector<MenuItem>& items, int selected,
+                                          bool in_favorites, bool in_lastplayed,
+                                          const std::string& current_sys, const std::string& current_rel) {
+    if (selected < 0 || selected >= (int)items.size()) return "";
+    if (items[selected].is_dir) return "";
+
+    if (in_favorites && selected < (int)favorites_list.size())
+        return favorites_list[selected].game_id;
+    if (in_lastplayed && selected < (int)lastplayed_list.size())
+        return lastplayed_list[selected].game_id;
+
+    if (current_sys.empty()) return "";
+    std::string rel_path;
+    std::string prefix = "/" + current_sys;
+    if (current_rel.rfind(prefix, 0) == 0)
+        rel_path = current_rel.substr(prefix.length());
+    return current_sys + rel_path + "/" + items[selected].name;
+}
+
+static std::string format_release_date(const std::string& raw) {
+    std::string d;
+    for (char c : raw) if (isdigit((unsigned char)c)) d += c;
+    if (d.size() >= 8) {
+        return d.substr(0, 4) + "-" + d.substr(4, 2) + "-" + d.substr(6, 2);
+    }
+    return raw;
+}
+
+static std::string format_external_rating(const std::string& raw) {
+    if (raw.empty()) return "N/A";
+    try {
+        double r = std::stod(raw);
+        if (r <= 1.0) r *= 5.0;
+        else if (r > 5.0 && r <= 100.0) r /= 20.0;
+        if (r < 0.0) r = 0.0;
+        if (r > 5.0) r = 5.0;
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%.1f/5", r);
+        return std::string(buf);
+    } catch (...) {
+        return raw;
+    }
+}
+
+static void draw_star_rating(SDL_Renderer* renderer, int rating, int x, int y, int sz = 15) {
+    for (int i = 0; i < 5; i++) {
+        SDL_Texture* tex = (i < rating) ? tex_star_filled : tex_star_empty;
+        SDL_Rect dst = { x + i * (sz + 2), y, sz, sz };
+        if (tex) {
+            SDL_RenderCopy(renderer, tex, NULL, &dst);
+        } else {
+            // fallback testo se le immagini non sono disponibili
+            SDL_SetRenderDrawColor(renderer, 255, 220, 80, 255);
+            SDL_RenderFillRect(renderer, &dst);
+        }
+    }
+}
+
 // --- GAMELIST.XML PARSER ---
 // Mappa: filename (lowercase, senza estensione) -> GameInfo
 std::map<std::string, GameInfo> current_gamelist;
@@ -2938,6 +3321,7 @@ void load_gamelist(const std::string& system_path) {
         gi.genre = extract_tag(block, "genre");
         gi.developer = extract_tag(block, "developer");
         gi.publisher = extract_tag(block, "publisher");
+        gi.players = extract_tag(block, "players");
         gi.rating = extract_tag(block, "rating");
         gi.releasedate = extract_tag(block, "releasedate");
 
@@ -3013,6 +3397,49 @@ const std::map<std::string, GameInfo>& get_system_gamelist(const std::string& sy
 // Mappa: system name (lowercase) -> description / fullname
 std::map<std::string, std::string> systems_desc;
 std::map<std::string, std::string> systems_fullname; // folder_name(lower) -> display name
+
+// --- SYSTEMS_ORDER.XML ---
+
+void load_systems_order() {
+    systems_custom_order.clear();
+    // Cerca nella stessa directory di systems_desc.xml
+    std::string path = base_p + "systems_order.xml";
+    std::ifstream f(path);
+    if (!f.is_open()) return;
+    std::string line;
+    while (std::getline(f, line)) {
+        // Rimuovi spazi/CR
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ')) line.pop_back();
+        while (!line.empty() && line.front() == ' ') line = line.substr(1);
+        if (line.empty() || line[0] == '#') continue;
+        // Accetta sia <system>nome</system> che righe plain
+        if (line.rfind("<system>", 0) == 0) {
+            size_t e = line.find("</system>");
+            if (e != std::string::npos)
+                line = line.substr(8, e - 8);
+            else
+                line = line.substr(8);
+        }
+        if (!line.empty()) systems_custom_order.push_back(line);
+    }
+}
+
+// Comparatore per l'ordinamento dei sistemi secondo system_sort_order
+static bool compare_systems(const MenuItem& a, const MenuItem& b) {
+    if (system_sort_order == 1) {
+        // Ordine per nome cartella (case-insensitive)
+        std::string fa = a.name, fb = b.name;
+        std::transform(fa.begin(), fa.end(), fa.begin(), ::tolower);
+        std::transform(fb.begin(), fb.end(), fb.begin(), ::tolower);
+        return fa < fb;
+    }
+    // Default (0 o 2 non gestito qui): ordine per nome sistema
+    std::string da = get_system_fullname(a.name);
+    std::string db = get_system_fullname(b.name);
+    std::transform(da.begin(), da.end(), da.begin(), ::tolower);
+    std::transform(db.begin(), db.end(), db.begin(), ::tolower);
+    return da < db;
+}
 
 void load_systems_desc() {
     systems_desc.clear();
@@ -3194,9 +3621,13 @@ int main(int, char* argv[]) {
         snprintf(cmd, sizeof(cmd), "amixer sset Master %d%% -q 2>/dev/null", startup_volume);
         system(cmd);
     }
+    if (startup_brightness >= 10) {
+        apply_screen_brightness(startup_brightness);
+    }
     load_superfolders();
     load_favs();
     load_lastplayed();
+    load_user_ratings();
     target_spec.freq = 44100; target_spec.format = AUDIO_S16SYS; target_spec.channels = 2; target_spec.samples = 2048; target_spec.callback = NULL;
     audio_device = SDL_OpenAudioDevice(NULL, 0, &target_spec, NULL, 0);
     
@@ -3224,6 +3655,7 @@ int main(int, char* argv[]) {
     img_p = theme_p() + "images/"; // Update image path to active theme
     theme_cfg = load_theme_config(theme_p() + "theme.cfg"); // Load theme layout/color config
     load_systems_desc();          // Load system descriptions from systems_desc.xml
+    load_systems_order();         // Load custom system sort order (systems_order.xml)
     load_and_convert_sound((theme_p() + "sounds/click.wav").c_str(), s_click);
     load_and_convert_sound((theme_p() + "sounds/enter.wav").c_str(), s_enter);
     load_and_convert_sound((theme_p() + "sounds/back.wav").c_str(), s_back);
@@ -3231,7 +3663,9 @@ int main(int, char* argv[]) {
 
     int screen_w, screen_h; SDL_GetRendererOutputSize(renderer, &screen_w, &screen_h);
 
-    font_tex = load_theme_image(renderer, "font_map.png");
+    font_tex        = load_theme_image(renderer, "font_map.png");
+    tex_star_filled = load_theme_image(renderer, "star_filled.png");
+    tex_star_empty  = load_theme_image(renderer, "star_empty.png");
     std::string font_path = find_font_path();
     TTF_Font* font_16 = nullptr;
     TTF_Font* font_20 = nullptr;
@@ -3434,16 +3868,34 @@ int main(int, char* argv[]) {
         for (const auto& sf : superfolder_roots)
             result.push_back({sf.name, true, true});
         std::vector<MenuItem> all_sys = scan_directory(roms_base, true);
+        std::vector<MenuItem> unassigned;
         for (auto& it : all_sys) {
-            if (hdmi_connected) {
+            if (hdmi_connected && !hdmi_supported_systems.empty()) {
                 std::string low = it.name;
                 std::transform(low.begin(), low.end(), low.begin(), ::tolower);
                 low.erase(std::remove(low.begin(), low.end(), ' '), low.end());
                 if (hdmi_supported_systems.count(low) == 0) continue;
             }
             if (systems_in_superfolders.count(it.name) == 0)
-                result.push_back(it);
+                unassigned.push_back(it);
         }
+        if (system_sort_order == 2 && !systems_custom_order.empty()) {
+            // Custom: ordina secondo systems_custom_order, i non trovati vanno in fondo
+            std::vector<MenuItem> ordered, rest;
+            for (const auto& s : systems_custom_order)
+                for (const auto& it : unassigned)
+                    if (it.name == s) { ordered.push_back(it); break; }
+            for (const auto& it : unassigned) {
+                bool found = false;
+                for (const auto& o : ordered) if (o.name == it.name) { found = true; break; }
+                if (!found) rest.push_back(it);
+            }
+            unassigned = ordered;
+            unassigned.insert(unassigned.end(), rest.begin(), rest.end());
+        } else {
+            std::sort(unassigned.begin(), unassigned.end(), compare_systems);
+        }
+        result.insert(result.end(), unassigned.begin(), unassigned.end());
         if (!result.empty())
             result.insert(result.begin(), MenuItem{"FAVORITES", true, false});
         result.push_back(MenuItem{"LAST PLAYED", true, false});
@@ -4056,6 +4508,10 @@ int main(int, char* argv[]) {
                     img_p = theme_p() + "images/";
                     if (list_bg_tex) { SDL_DestroyTexture(list_bg_tex); list_bg_tex = nullptr; }
                     list_bg_tex = load_texture_png_jpg(renderer, theme_p() + "bg/list_bg");
+                    if (tex_star_filled) { SDL_DestroyTexture(tex_star_filled); tex_star_filled = nullptr; }
+                    if (tex_star_empty)  { SDL_DestroyTexture(tex_star_empty);  tex_star_empty  = nullptr; }
+                    tex_star_filled = load_theme_image(renderer, "star_filled.png");
+                    tex_star_empty  = load_theme_image(renderer, "star_empty.png");
                     update_carousel_textures(renderer, items, selected, &bg_cur, &dev_cur, &dev_prev, &dev_next, &ctrl_cur);
                     slide_pos = theme_cfg.carousel_vertical ? 600.0f : 1024.0f;
                 }
@@ -4249,6 +4705,8 @@ int main(int, char* argv[]) {
                         if (selected > del_idx) selected--;  // fix off-by-one quando selected era dopo il gioco cancellato
                         if (selected >= (int)items.size()) selected = std::max(0, (int)items.size() - 1);
                         g_count = std::max(0, g_count - 1);
+                        // Aggiorna la cache game_count_cache così il carousel mostra il conteggio corretto
+                        game_count_cache[current_sys] = g_count;
                         // Pulisci cache 3dbox e forza reload immediato (senza attesa 200ms)
                         { for (auto& kv : box3d_cache) SDL_DestroyTexture(kv.second); box3d_cache.clear(); }
                         if (box_art) { SDL_DestroyTexture(box_art); box_art = nullptr; }
@@ -4362,6 +4820,18 @@ int main(int, char* argv[]) {
                         }
                     }
                 } else {
+                    if (btn == 6) { // SELECT: personal rating cycle (0->1->...->5->0)
+                        if (!in_favorites && !in_lastplayed && !items.empty() && !items[selected].is_dir) {
+                            std::string gid = build_selected_game_id(items, selected, in_favorites, in_lastplayed, current_sys, current_rel);
+                            if (!gid.empty()) {
+                                int cur = get_user_rating(gid);
+                                int next = (cur >= 5) ? 0 : (cur + 1);
+                                set_user_rating(gid, next);
+                                play_sound(s_click);
+                                input_delay = tick + 150;
+                            }
+                        }
+                    }
                     if (btn == 4) { // Tasto Y: Aggiungi/Rimuovi Preferito
                         if (!items.empty() && !items[selected].is_dir) {
                             std::string game_id;
@@ -5299,7 +5769,57 @@ int main(int, char* argv[]) {
                     }
                     SDL_RenderSetClipRect(renderer, NULL);
                 }
+
+                if (theme_cfg.game_meta_enabled) {
+                    // Game metadata lines from gamelist.xml (fully theme-configurable)
+                    int meta_x = (theme_cfg.game_meta_x >= 0) ? theme_cfg.game_meta_x : theme_cfg.desc_x;
+                    int meta_y = (theme_cfg.game_meta_y >= 0) ? theme_cfg.game_meta_y : (theme_cfg.desc_y + theme_cfg.desc_area_h + 6);
+                    int meta_lh = std::max(10, theme_cfg.game_meta_line_h);
+                    int meta_fs = std::max(10, theme_cfg.game_meta_font_size);
+                    TTF_Font* meta_font = font_16;
+                    if (ttf_available) {
+                        if (font_cache.find(meta_fs) == font_cache.end()) font_cache[meta_fs] = ttf_open_font(font_path, meta_fs);
+                        if (font_cache.count(meta_fs) && font_cache[meta_fs]) meta_font = font_cache[meta_fs];
+                    }
+                    std::string rel = gi->releasedate.empty() ? "N/A" : format_release_date(gi->releasedate);
+                    std::string genre = gi->genre.empty() ? "N/A" : gi->genre;
+                    std::string dev = gi->developer.empty() ? "N/A" : gi->developer;
+                    std::string pub = gi->publisher.empty() ? "N/A" : gi->publisher;
+                    std::string players = gi->players.empty() ? "N/A" : gi->players;
+                    std::string ext_rating = format_external_rating(gi->rating);
+                    std::string meta_row1 = "Release: " + rel + "  |  Genre: " + genre;
+                    std::string meta_row2 = "Developer: " + dev + "  |  Publisher: " + pub;
+                    std::string meta_row3 = "Players: " + players + "  |  Rating: " + ext_rating;
+                    draw_text(renderer, meta_font, meta_row1, meta_x, meta_y + meta_lh * 0, meta_fs, theme_cfg.game_meta_color);
+                    draw_text(renderer, meta_font, meta_row2, meta_x, meta_y + meta_lh * 1, meta_fs, theme_cfg.game_meta_color);
+                    draw_text(renderer, meta_font, meta_row3, meta_x, meta_y + meta_lh * 2, meta_fs, theme_cfg.game_meta_color);
+                }
                 } // end if (gi)
+
+                // Personal rating overlay (stelle immagine, theme-configurable)
+                if (theme_cfg.personal_rating_enabled) {
+                    std::string gid = build_selected_game_id(items, selected, in_favorites, in_lastplayed, current_sys, current_rel);
+                    int pr = get_user_rating(gid);
+                    TTF_Font* pr_font = font_16;
+                    if (ttf_available) {
+                        int psz = std::max(10, theme_cfg.personal_rating_font_size);
+                        if (font_cache.find(psz) == font_cache.end()) font_cache[psz] = ttf_open_font(font_path, psz);
+                        if (font_cache.count(psz) && font_cache[psz]) pr_font = font_cache[psz];
+                    }
+                    // Etichetta "Personal:"
+                    draw_text(renderer, pr_font, "Personal:",
+                              theme_cfg.personal_rating_x, theme_cfg.personal_rating_y,
+                              theme_cfg.personal_rating_font_size, theme_cfg.personal_rating_color);
+                    // Stelline a destra dell'etichetta
+                    int label_w = 0, label_h = 0;
+                    if (pr_font && ttf_available) ttf_size_utf8(pr_font, "Personal:", &label_w, &label_h);
+                    else label_w = 9 * theme_cfg.personal_rating_font_size / 2; // approssimazione bitmap
+                    int star_sz = theme_cfg.personal_rating_star_size;
+                    draw_star_rating(renderer, pr,
+                                     theme_cfg.personal_rating_x + label_w + 6,
+                                     theme_cfg.personal_rating_y + (theme_cfg.personal_rating_font_size - star_sz) / 2,
+                                     star_sz);
+                }
             }
             if (theme_cfg.gamelist_3dbox_enabled) {
                 // --- 3DBOX CAROUSEL ---
