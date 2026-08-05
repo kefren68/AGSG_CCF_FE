@@ -1,28 +1,27 @@
 # Be sure the system name is the folder name in your Games directory
 
-2048:zip
-Amiga:adz,dms,fdi,ipf,raw,hdf,hdz,lha,slave,cue,ccd,chd,nrg,mds,iso,uae,m3u,zip,7z
-Amstrad CPC:dsk,sna,tap,cdt,voc,m3u,cpr,zip
+#2048:zip
+Amiga:adf,lha
+Amstrad CPC:zip
 #Apple2:woz
 #Arcade Games:zip
 #Arcade Classics:zip
-Atari 800:xfd,atr,atx,cdm,cas,bin,a52,xex,zip
-Atari 2600:a26,bin,zip
-Atari 2600 Paddle:a26,bin,zip
-Atari 5200:a52,zip
-Atari 7800:a78,bin
+Atari 800:zip,bin,atr
+Atari 2600:a26
+Atari 2600 Paddle:a26
+Atari 5200:a52
+Atari 7800:a78
 #Atari_Jaguar
 Atari Lynx:lnx
 Atari Recharged:zip
-Atari ST:st,msa,stx,dim,ipf,zip
+Atari ST:zip
 Balls of Steel:zip
 Cannonball:zip
 Cave Story:bin
-CDi:chd,iso
-Fairchild Channel F:bin,rom,chf,zip
-ColecoVision:col,cv,bin,rom,zip
-Creativision:rom,myv,bin,zip
-ChaiLove:zip
+ChannelF:zip
+ColecoVision:bin,zip
+Creativision:zip
+#ChaiLove:zip
 #Coleco_ADAM:zip
 #Coleco_ADAM_Infocom:zip,ddp,dsk
 #ColecoVision_3rd_Party:bin,col,rom,zip
@@ -37,79 +36,77 @@ ChaiLove:zip
 #ColecoVision_Prototypes:bin,col,rom,zip
 #ColecoVision_Purchased:bin,col,rom,zip
 #ColecoVision_SuperGames:bin,col,rom,zip
-Commodore 64:d64,d71,d80,d81,d82,d8z,g64,g6z,g41,x64,nib,t64,tap,crt,prg,p00,7z,gz,zip
+Commodore 64:zip
 #cps1:zip
 #cps2:zip
 #cps3:zip
 Daphne:zip
-Dinothawr:zip
-Doom:wad,zip
+#dinothawr:zip
+Doom:zip
 #dirksimple:dirksimple,sh
 #easyrpg:zip
 #Emerson Arcadia:zip
-Flashback:zip
-Game and Watch:mgw,zip
+#Fairchild Channel F:chf
+#Flashback:zip
+Game and Watch:zip
 Gameboy:gb
 Gameboy Advance:gba
 Gameboy Color:gbc
-Intellivision:int,rom,bin
+Intellivision:int
 Mame:zip
 #MAME_300:zip
 Microvision:bin
-minivmac:dsk
+#minivmac:dsk
 #Mr Boom:zip
-MSDOS:zip,exe
-MSX:rom,mx1,mx2,dsk,cas,zip
+MSX:zip
 Neo Geo:zip
-Neo Geo Pocket Color:ngp,ngc
-NES:fds,nes,unif,unf
-Nintendo 64:n64,v64,z64,bin,u1,ndd
+Neo Geo Pocket Color:ngc
+NES:nes
+Nintendo 64:n64
 Odyssey2:bin
-PC Engine:pce,cue,ccd,iso,img,bin,chd
-PC Engine CD:pce,cue,ccd,iso,img,bin,chd
+PC Engine:pce
+PC Engine CD:chd
 pico8:zip
-PlayStation:bin,cue,img,mdf,pbp,toc,cbn,m3u,ccd,chd,iso,exe
+PlayStation:pbp
 #Pokemini:min
 #PSP:chd,pbp
-Quake:zip
+#Quake:zip
 #Satellaview:smc,sfc
 ScummVM:zip,scummvm
-Sega 32x:32x,bin,cue,iso,chd,m3u,zip
-Sega CD:bin,cue,iso,chd
+Sega 32x:zip,32x,bin,cue
+Sega CD:bin,cue,chd
 #Sega Dreamcast:cdi,chd
 Sega Game Gear:gg
-Sega Genesis:bin,md,smd
+Sega Genesis:bin,md
 Sega Master System:sms
-#Sega Mega Drive:bin,md,smd
-#Sega Mega Drive CD:bin,cue,iso,chd
+#Sega Mega Drive:smd
+#Sega Mega Drive CD:cue
 #Sega Pico:bin
 SG-1000:zip,sms
-Sharp X1:dx1,zip,2d,2hd,tfd,d88,hdm,xdf,dup,tap,cmd
-SNES:smc,sfc,fig,gd3,gd7,dx2,bsx,swc
+Sharp X1:zip
+SNES:smc,sfc
 #SNES_MSU-1:smc,sfc
-#Super Famicom:smc,sfc,fig,gd3,gd7,dx2,bsx,swc
+#Super Famicom:sfc
 #SuperGrafX:pce,zip
 #The Powder Toy:zip
 ti99sim:zip
-TIC-80:tic
+#TIC-80:tic
 #Toaplan_CAVE:zip
-#TurboGrafX-16:pce,cue,ccd,iso,img,bin,chd
+#TurboGrafX-16:pce
 #Uzebox:uze,zip
-Vectrex:bin,vec,zip
-Virtualboy:vb,zip
-WASM-4:wasm,zip
-Watara Supervision:sv,bin,zip
-Wolfenstein_3D:exe,zip
-WonderSwan Color:wsc
-WonderSwan:ws
+Vectrex:zip
+Virtualboy:zip,vb
+WASM-4:zip
+#Watara Supervision:zip
+#Wolfenstein_3D:zip
+WonderSwan Color:wsc,ws
+#WonderSwan:ws
 XRick:zip
-ZX Spectrum:tzx,tap,z80,rzx,scl,trd,zip
-
+ZX Spectrum:zip
 
 # --hide dirs
-_hide_dirs:boxart,videos,screenshots,3dboxes,marquees,manuals,.metadata,gamelist.xml,launcher,res,data,game_cfg,sigil,backup,bbs,carts,cdata,cstore,plates,themes
 
-_hide_dirs_Cannonball:roms
+_hide_dirs:boxart,videos,gamelist.xml,res,data,game_cfg,sigil,backup,bbs,carts,cdata,cstore,plates,themes,test,launcher,marquees,manuals,3dboxes,.metadata,screenshots,media,pics,sound,ace,astron,bega,cliff,cobra,esh,galaxy,gpworld,interstellar,lair,mach3,rb,sdq,uvt,framefile,ram,badlandh,badlandp,badlands,begar1,cobraab,cobraconv,cobram3,dle21,eshalt,eshalt2,galaxyp,roadblaster,sdqshort,sdqshortalt,tq,lair.daphne,ace.daphne,astron.daphne,bega.daphne,cliff.daphne,cobra.daphne,esh.daphne,galaxy.daphne,gpworld.daphne,interstellar.daphne,mach3.daphne,rb.daphne,sdq.daphne,uvt.daphne
 
 
 
@@ -118,7 +115,19 @@ _hide_dirs_Cannonball:roms
 # 1=return to AGSG game browser
 # 2=return to carousel menu if in gamelist, do nothing if is in carousel yet
 # 3=return to carousel menu if in gamelist, if in carousel center to favorites system
+
 _home_mode:1
 
+
+# --Select to show rom names or game name in game list
+# 0=show rom names
+# 1=show game name
+_show_gamelist_names:1
+
+
+# --Select to show rom names or game name in game search
+# 0=show rom names
+# 1=show game name
+_show_gamesearch_names:0
 
 
