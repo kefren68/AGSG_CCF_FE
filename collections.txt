@@ -1,0 +1,211 @@
+[GSG Atari]
+Atari 2600/GSG Atari/3d Tic Tac Toe.bin
+Atari 2600/GSG Atari/Adventure.bin
+Atari 2600/GSG Atari/Adventure II.bin
+Atari 2600/GSG Atari/Air Sea Battle.bin
+Atari 2600/GSG Atari/Aquaventure.bin
+Atari 2600/GSG Atari/Miniature Golf.bin
+Atari 2600/GSG Atari/Asteroids.bin
+Atari 2600/GSG Atari/Atari Video Cube.a26
+Atari 2600/GSG Atari/Basic Math.bin
+Atari 2600/GSG Atari/Basketball.a26
+Atari 2600/GSG Atari/Berzerk.a26
+Atari 2600/GSG Atari/Bowling.bin
+Atari 2600/GSG Atari/Centipede.bin
+Atari 2600/GSG Atari/Combat.bin
+Atari 2600/GSG Atari/Combat Two.bin
+Atari 2600/GSG Atari/Crystal Castles.bin
+Atari 2600/GSG Atari/Dark Chambers.bin
+Atari 2600/GSG Atari/Desert Falcon.bin
+Atari 2600/GSG Atari/Dodge 'Em.bin
+Atari 2600/GSG Atari/Double Dunk.bin
+Atari 2600/GSG Atari/Flag Capture.bin
+Atari 2600/GSG Atari/Football.bin
+Atari 2600/GSG Atari/Frog Pond.bin
+Atari 2600/GSG Atari/Golf.bin
+Atari 2600/GSG Atari/Gravitar.bin
+Atari 2600/GSG Atari/Hangman.bin
+Atari 2600/GSG Atari/Haunted House.bin
+Atari 2600/GSG Atari/Home Run.bin
+Atari 2600/GSG Atari/Human Cannonball.bin
+Atari 2600/GSG Atari/Maze Craze.bin
+Atari 2600/GSG Atari/Millipede.bin
+Atari 2600/GSG Atari/Missile Command.bin
+Atari 2600/GSG Atari/MotoRodeo.bin
+Atari 2600/GSG Atari/Off the Wall.a26
+Atari 2600/GSG Atari/Championship Soccer.bin
+Atari 2600/GSG Atari/Quadrun.bin
+Atari 2600/GSG Atari/Radar Lock.bin
+Atari 2600/GSG Atari/RealSports Baseball.bin
+Atari 2600/GSG Atari/RealSports Basketball.bin
+Atari 2600/GSG Atari/RealSports Boxing.bin
+Atari 2600/GSG Atari/RealSports Football.bin
+Atari 2600/GSG Atari/RealSports Soccer.bin
+Atari 2600/GSG Atari/RealSports Tennis.bin
+Atari 2600/GSG Atari/RealSports Volleyball.bin
+Atari 2600/GSG Atari/Saboteur.bin
+Atari 2600/GSG Atari/Save Mary!.bin
+Atari 2600/GSG Atari/Secret Quest.bin
+Atari 2600/GSG Atari/Sky Diver.a26
+Atari 2600/GSG Atari/Slot Racers.bin
+Atari 2600/GSG Atari/Solaris.bin
+Atari 2600/GSG Atari/Space War.bin
+Atari 2600/GSG Atari/Sprintmaster.bin
+Atari 2600/GSG Atari/Submarine Commander.a26
+Atari 2600/GSG Atari/Super Baseball.bin
+Atari 2600/GSG Atari/Super Football.bin
+Atari 2600/GSG Atari/Surround.bin
+Atari 2600/GSG Atari/Swordquest EarthWorld.bin
+Atari 2600/GSG Atari/Swordquest FireWorld.bin
+Atari 2600/GSG Atari/Swordquest WaterWorld.bin
+Atari 2600/GSG Atari/Video Checkers.bin
+Atari 2600/GSG Atari/Video Pinball.bin
+Atari 2600/GSG Atari/Yars' Revenge.bin
+Atari 2600 Paddle/GSG Atari/Breakout.bin
+Atari 2600 Paddle/GSG Atari/Canyon Bomber.bin
+Atari 2600 Paddle/GSG Atari/Circus Atari.bin
+Atari 2600 Paddle/GSG Atari/Demons to Diamonds.bin
+Atari 2600 Paddle/GSG Atari/Indy 500.bin
+Atari 2600 Paddle/GSG Atari/Night Driver.bin
+Atari 2600 Paddle/GSG Atari/Steeplechase.a26
+Atari 2600 Paddle/GSG Atari/Stunt Cycle.bin
+Atari 2600 Paddle/GSG Atari/Super Breakout.bin
+Atari 2600 Paddle/GSG Atari/Video Olympics.a26
+Atari 2600 Paddle/GSG Atari/Warlords.bin
+Atari 2600/GSG M-Network/Air Raiders.a26
+Atari 2600/GSG M-Network/International Soccer.a26
+Atari 2600/GSG M-Network/Sea Battle.bin
+Atari 2600/GSG M-Network/Space Attack.a26
+Atari 2600/GSG M-Network/Super Challenge Baseball.a26
+Atari 2600/GSG M-Network/Super Challenge Football.a26
+Atari 5200/GSG Atari/Centipede.bin
+Atari 5200/GSG Atari/Meebzork.bin
+Atari 5200/GSG Atari/Millipede.a52
+Atari 5200/GSG Atari/Missile Command.a52
+Atari 5200/GSG Atari/RealSports Baseball.a52
+Atari 5200/GSG Atari/RealSports Basketball.bin
+Atari 5200/GSG Atari/RealSports Soccer.bin
+Atari 5200/GSG Atari/RealSports Tennis.bin
+Atari 7800/GSG Atari/Asteroids.a78
+Atari 7800/GSG Atari/Basketbrawl.a78
+Atari 7800/GSG Atari/Centipede.a78
+Atari 7800/GSG Atari/Dark Chambers.a78
+Atari 7800/GSG Atari/Desert Falcon.a78
+Atari 7800/GSG Atari/Fatal Run.a78
+Atari 7800/GSG Atari/Food Fight.a78
+Atari 7800/GSG Atari/MotorPsycho.a78
+Atari 7800/GSG Atari/Ninja Golf.a78
+Atari 7800/GSG Atari/RealSports Baseball.a78
+Atari 7800/GSG Atari/Scrapyard Dog.a78
+Mame/GSG Atari/asteroid.zip
+Mame/GSG Atari/astdelux.zip
+Mame/GSG Atari/abaseb.zip
+Mame/GSG Atari/atarifb.zip
+Mame/GSG Atari/soccer.zip
+Mame/GSG Atari/bsktball.zip
+Mame/GSG Atari/berzerk.zip
+Mame/GSG Atari/bwidow.zip
+Mame/GSG Atari/canyon.zip
+Mame/GSG Atari/centiped.zip
+Mame/GSG Atari/cloak.zip
+Mame/GSG Atari/cloud9.zip
+Mame/GSG Atari/ccastles.zip
+Mame/GSG Atari/dominos.zip
+Mame/GSG Atari/dragrace.zip
+Mame/GSG Atari/firetrk.zip
+Mame/GSG Atari/foodf.zip
+Mame/GSG Atari/frenzy.zip
+Mame/GSG Atari/gravitar.zip
+Mame/GSG Atari/irobot.zip
+Mame/GSG Atari/liberatr.zip
+Mame/GSG Atari/lunarbat.zip
+Mame/GSG Atari/llander.zip
+Mame/GSG Atari/milliped.zip
+Mame/GSG Atari/missile.zip
+Mame/GSG Atari/montecar.zip
+Mame/GSG Atari/nitedrvr.zip
+Mame/GSG Atari/poolshrk.zip
+Mame/GSG Atari/quantum.zip
+Mame/GSG Atari/redbaron.zip
+Mame/GSG Atari/runaway.zip
+Mame/GSG Atari/skydiver.zip
+Mame/GSG Atari/skyraid.zip
+Mame/GSG Atari/spacduel.zip
+Mame/GSG Atari/sbrkout.zip
+Mame/GSG Atari/superbug.zip
+Mame/GSG Atari/tempest.zip
+Mame/GSG Atari/alphaone.zip
+Mame/GSG Atari/mhavoc.zip
+Mame/GSG Atari/tourtabl.zip
+Mame/GSG Atari/warlords.zip
+[GSG Jaleco]
+Mame/GSG Jaleco/aeroboto.zip
+Mame/GSG Jaleco/argus.zip
+Mame/GSG Jaleco/avspirit.zip
+Mame/GSG Jaleco/bigstrik.zip
+Mame/GSG Jaleco/chimerab.zip
+Mame/GSG Jaleco/cischeat.zip
+Mame/GSG Jaleco/cruisin.zip
+Mame/GSG Jaleco/cybattlr.zip
+Mame/GSG Jaleco/exerion.zip
+Mame/GSG Jaleco/fcombat.zip
+Mame/GSG Jaleco/kickoff.zip
+Mame/GSG Jaleco/p47.zip
+Mame/GSG Jaleco/pturn.zip
+Mame/GSG Jaleco/plusalph.zip
+Mame/GSG Jaleco/rodland.zip
+Mame/GSG Jaleco/stdragon.zip
+Mame/GSG Jaleco/skyfox.zip
+Mame/GSG Jaleco/soldam.zip
+Mame/GSG Jaleco/astyanax.zip
+Mame/GSG Jaleco/kazan.zip
+NES/GSG Jaleco/Bases Loaded 1.nes
+NES/GSG Jaleco/Bases Loaded 3.nes
+NES/GSG Jaleco/Bases Loaded 4.nes
+NES/GSG Jaleco/Bases Loaded 2.nes
+NES/GSG Jaleco/City Connection.nes
+NES/GSG Jaleco/Goal.nes
+NES/GSG Jaleco/Hoops.nes
+NES/GSG Jaleco/Pinball Quest.nes
+NES/GSG Jaleco/Racket Attack.nes
+NES/GSG Jaleco/Totally Rad.nes
+Gameboy/GSG Jaleco/Battle Unit Zeoth.gb
+Gameboy/GSG Jaleco/Fortified Zone.gb
+SNES/GSG Jaleco/Brawl Brothers.smc
+SNES/GSG Jaleco/Goal.smc
+SNES/GSG Jaleco/Hammerlock Wrestling.smc
+SNES/GSG Jaleco/Operation Logic Bomb.smc
+SNES/GSG Jaleco/Rival Turf.smc
+SNES/GSG Jaleco/Super Bases Loaded 2.smc
+SNES/GSG Jaleco/The Ignition Factor.smc
+SNES/GSG Jaleco/The Peace Keepers.sfc
+SNES/GSG Jaleco/Tuff E Nuff.smc
+[GSG Pacman]
+Atari 2600/GSG Pacman/pacmana2600.a26
+Mame/GSG Pacman/pacman.zip
+Mame/GSG Pacman/pacmanf.zip
+Sega Genesis/GSG Pacman/pacman.bin
+Sega Genesis/GSG Pacman/pacmanf.bin
+[GSG Piko]
+Mame/GSG Piko/fncywld.zip
+Mame/GSG Piko/luckboom.zip
+Mame/GSG Piko/maniacsq.zip
+Mame/GSG Piko/mwarr.zip
+Mame/GSG Piko/wrally.zip
+NES/GSG Piko/8 Eyes.nes
+NES/GSG Piko/Bad Street Brawler.nes
+NES/GSG Piko/Dash Galaxy.nes
+NES/GSG Piko/Free Fall.nes
+NES/GSG Piko/Mermaids of Atlantis.nes
+NES/GSG Piko/Metal Mech.nes
+NES/GSG Piko/Motor City Patrol.nes
+NES/GSG Piko/Nightshade.nes
+Sega Genesis/GSG Piko/Brave Battle Saga.bin
+Sega Genesis/GSG Piko/Jim Power.bin
+Sega Genesis/GSG Piko/The Humans.bin
+Sega Genesis/GSG Piko/The Immortal.bin
+Sega Genesis/GSG Piko/Water Margin.bin
+Sega Genesis/GSG Piko/Thunderbolt II.md
+Sega Genesis/GSG Piko/Top Racer 2.md
+SNES/GSG Piko/Top Racer.smc
+SNES/GSG Piko/Top Racer 3000.smc
