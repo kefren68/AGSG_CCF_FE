@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/wait.h>
 #ifndef CROSS_PLATFORM
 #include <linux/input.h>
 #endif
@@ -40,11 +41,12 @@ extern "C" {
 #include <libavutil/opt.h>
 }
 
-#define LAUNCHER_VERSION "1.4.6 Stable"
+#define LAUNCHER_VERSION "1.4.8 Beta"
 
 // --- STRUCTURES ---
 struct MenuItem {
     std::string name;
+    std::string game_id; // Per viste speciali (fav/lp/col): full game_id (sys/path/file.ext); vuoto per viste normali
     bool is_dir;
     bool is_superfolder;
     bool is_collection;
@@ -122,6 +124,8 @@ int  system_sort_order  =  0; // 0=nome sistema, 1=nome cartella, 2=custom (syst
 bool music_autoadvance = false; // true = alla fine di una traccia passa alla successiva
 bool show_empty_systems = true; // false = nascondi sistemi senza ROM
 bool video_preview_enabled = true; // false = non mostrare video preview nella gamelist
+bool search_direct_enter  = false; // true = dalla ricerca sistemi entra nel sistema senza premere A
+bool search_direct_launch = false; // true = dalla ricerca giochi lancia il gioco senza premere A
 
 // --- CAROUSEL PRELOADER ---
 // g_count_mutex: protects game_count_cache (preload thread + main thread)
@@ -247,6 +251,7 @@ struct ThemeConfig {
     bool  boxart_overlay_enabled      = false;
     int   boxart_overlay_x            = 645;
     int   boxart_overlay_y            = 310;
+    bool  boxart_overlay_anchor_center = false; // true = x,y riferiti al centro dell'immagine
     int   boxart_overlay_max_w        = 120;
     int   boxart_overlay_max_h        = 90;
     int   boxart_overlay_alpha        = 220;
@@ -261,6 +266,7 @@ struct ThemeConfig {
     bool  marquee_enabled         = true;
     int   marquee_x               = 645;
     int   marquee_y               = 10;
+    bool  marquee_anchor_center   = false; // true = x,y riferiti al centro dell'immagine
     float marquee_scale           = 0.5f;
     int   marquee_max_w           = 0;   // 0 = no limit
     int   marquee_max_h           = 0;   // 0 = no limit
@@ -277,12 +283,13 @@ struct ThemeConfig {
     int   desc_line_h             = 18;
     float desc_scroll_speed       = 0.8f;
     // [game_meta]
-    bool      game_meta_enabled   = true;
-    int       game_meta_x         = -1;   // -1 = auto (desc_x)
-    int       game_meta_y         = -1;   // -1 = auto (desc_y + desc_area_h + 6)
-    int       game_meta_line_h    = 18;
-    int       game_meta_font_size = 16;
-    SDL_Color game_meta_color     = {200, 200, 200, 255};
+    bool      game_meta_enabled     = true;
+    bool      game_meta_one_per_row = false; // true = un campo per riga, false = due per riga (default)
+    int       game_meta_x           = -1;   // -1 = auto (desc_x)
+    int       game_meta_y           = -1;   // -1 = auto (desc_y + desc_area_h + 6)
+    int       game_meta_line_h      = 18;
+    int       game_meta_font_size   = 16;
+    SDL_Color game_meta_color       = {200, 200, 200, 255};
     // [personal_rating]
     bool      personal_rating_enabled   = true;
     int       personal_rating_x         = 645;
@@ -293,6 +300,7 @@ struct ThemeConfig {
     // [logo]
     int   logo_x                  = 20;
     int   logo_y                  = 5;
+    bool  logo_anchor_center      = false; // true = x,y riferiti al centro dell'immagine
     int   logo_max_w              = 300;
     int   logo_max_h              = 40;
     int   logo_shadow_alpha       = 150;
@@ -494,6 +502,7 @@ ThemeConfig load_theme_config(const std::string& path) {
                 if      (key == "enabled")       cfg.boxart_overlay_enabled = (val != "0" && val != "false");
                 else if (key == "x")             cfg.boxart_overlay_x = std::stoi(val);
                 else if (key == "y")             cfg.boxart_overlay_y = std::stoi(val);
+                else if (key == "anchor")        cfg.boxart_overlay_anchor_center = (val == "center");
                 else if (key == "max_w")         cfg.boxart_overlay_max_w = std::stoi(val);
                 else if (key == "max_h")         cfg.boxart_overlay_max_h = std::stoi(val);
                 else if (key == "alpha")         cfg.boxart_overlay_alpha = std::stoi(val);
@@ -505,15 +514,16 @@ ThemeConfig load_theme_config(const std::string& path) {
                 else if (key == "w") cfg.crt_overlay_w = std::stoi(val);
                 else if (key == "h") cfg.crt_overlay_h = std::stoi(val);
             } else if (section == "marquee") {
-                if      (key == "enabled")       cfg.marquee_enabled = (val != "0" && val != "false");
-                else if (key == "x")             cfg.marquee_x = std::stoi(val);
-                else if (key == "y")             cfg.marquee_y = std::stoi(val);
-                else if (key == "scale")         cfg.marquee_scale = std::stof(val);
-                else if (key == "max_w")         cfg.marquee_max_w = std::stoi(val);
-                else if (key == "max_h")         cfg.marquee_max_h = std::stoi(val);
-                else if (key == "alpha")         cfg.marquee_alpha = std::stoi(val);
-                else if (key == "shadow")        cfg.marquee_shadow = (val != "0" && val != "false");
-                else if (key == "shadow_alpha")  cfg.marquee_shadow_alpha = std::stoi(val);
+                if      (key == "enabled")        cfg.marquee_enabled = (val != "0" && val != "false");
+                else if (key == "x")              cfg.marquee_x = std::stoi(val);
+                else if (key == "y")              cfg.marquee_y = std::stoi(val);
+                else if (key == "anchor")         cfg.marquee_anchor_center = (val == "center");
+                else if (key == "scale")          cfg.marquee_scale = std::stof(val);
+                else if (key == "max_w")          cfg.marquee_max_w = std::stoi(val);
+                else if (key == "max_h")          cfg.marquee_max_h = std::stoi(val);
+                else if (key == "alpha")          cfg.marquee_alpha = std::stoi(val);
+                else if (key == "shadow")         cfg.marquee_shadow = (val != "0" && val != "false");
+                else if (key == "shadow_alpha")   cfg.marquee_shadow_alpha = std::stoi(val);
             } else if (section == "game_info") {
                 if      (key == "name_x")          cfg.game_name_x = std::stoi(val);
                 else if (key == "name_y")          cfg.game_name_y = std::stoi(val);
@@ -524,12 +534,13 @@ ThemeConfig load_theme_config(const std::string& path) {
                 else if (key == "desc_line_h")     cfg.desc_line_h = std::stoi(val);
                 else if (key == "desc_scroll_speed") cfg.desc_scroll_speed = std::stof(val);
             } else if (section == "game_meta") {
-                if      (key == "enabled")   cfg.game_meta_enabled = (val != "0" && val != "false");
-                else if (key == "x")         cfg.game_meta_x = std::stoi(val);
-                else if (key == "y")         cfg.game_meta_y = std::stoi(val);
-                else if (key == "line_h")    cfg.game_meta_line_h = std::max(10, std::stoi(val));
-                else if (key == "font_size") cfg.game_meta_font_size = std::max(10, std::stoi(val));
-                else if (key == "color")     cfg.game_meta_color = parse_color(val);
+                if      (key == "enabled")       cfg.game_meta_enabled = (val != "0" && val != "false");
+                else if (key == "one_per_row")   cfg.game_meta_one_per_row = (val == "1" || val == "true");
+                else if (key == "x")             cfg.game_meta_x = std::stoi(val);
+                else if (key == "y")             cfg.game_meta_y = std::stoi(val);
+                else if (key == "line_h")        cfg.game_meta_line_h = std::max(10, std::stoi(val));
+                else if (key == "font_size")     cfg.game_meta_font_size = std::max(10, std::stoi(val));
+                else if (key == "color")         cfg.game_meta_color = parse_color(val);
             } else if (section == "personal_rating") {
                 if      (key == "enabled")   cfg.personal_rating_enabled = (val != "0" && val != "false");
                 else if (key == "x")         cfg.personal_rating_x = std::stoi(val);
@@ -540,6 +551,7 @@ ThemeConfig load_theme_config(const std::string& path) {
             } else if (section == "logo") {
                 if      (key == "x")               cfg.logo_x = std::stoi(val);
                 else if (key == "y")               cfg.logo_y = std::stoi(val);
+                else if (key == "anchor")          cfg.logo_anchor_center = (val == "center");
                 else if (key == "max_w")           cfg.logo_max_w = std::stoi(val);
                 else if (key == "max_h")           cfg.logo_max_h = std::stoi(val);
                 else if (key == "shadow_alpha")    cfg.logo_shadow_alpha = std::stoi(val);
@@ -696,6 +708,8 @@ void save_options_settings() {
     f << "system_sort_order="     << system_sort_order     << "\n";
     f << "show_empty_systems="    << (show_empty_systems   ? 1 : 0) << "\n";
     f << "video_preview_enabled=" << (video_preview_enabled ? 1 : 0) << "\n";
+    f << "search_direct_enter="   << (search_direct_enter  ? 1 : 0) << "\n";
+    f << "search_direct_launch="  << (search_direct_launch ? 1 : 0) << "\n";
     f << "clock_format="          << clock_format          << "\n";
     f << "clock_tz_index="        << clock_tz_index        << "\n";
 }
@@ -728,6 +742,8 @@ void load_options_settings() {
         }
         else if (line.rfind("show_empty_systems=",    0) == 0) show_empty_systems    = line.substr(19) != "0";
         else if (line.rfind("video_preview_enabled=", 0) == 0) video_preview_enabled = line.substr(22) != "0";
+        else if (line.rfind("search_direct_enter=",   0) == 0) search_direct_enter   = line.substr(20) != "0";
+        else if (line.rfind("search_direct_launch=",  0) == 0) search_direct_launch  = line.substr(21) != "0";
         else if (line.rfind("clock_format=",          0) == 0) {
             try { int v = std::stoi(line.substr(13)); clock_format   = (v == 0 || v == 1) ? v : 0; } catch (...) {}
         }
@@ -1036,6 +1052,7 @@ using TTF_OpenFont_fn = TTF_Font* (*)(const char*, int);
 using TTF_CloseFont_fn = void (*)(TTF_Font*);
 using TTF_RenderText_Blended_fn = SDL_Surface* (*)(TTF_Font*, const char*, SDL_Color);
 using TTF_SizeUTF8_fn = int (*)(TTF_Font*, const char*, int*, int*);
+using TTF_FontHeight_fn = int (*)(TTF_Font*);
 
 static void* ttf_lib = nullptr;
 static TTF_Init_fn pTTF_Init = nullptr;
@@ -1044,6 +1061,7 @@ static TTF_OpenFont_fn pTTF_OpenFont = nullptr;
 static TTF_CloseFont_fn pTTF_CloseFont = nullptr;
 static TTF_RenderText_Blended_fn pTTF_RenderText_Blended = nullptr;
 static TTF_SizeUTF8_fn pTTF_SizeUTF8 = nullptr;
+static TTF_FontHeight_fn pTTF_FontHeight = nullptr;
 
 bool load_ttf_library() {
     const char* libs[] = {"libSDL2_ttf-2.0.so.0", "libSDL2_ttf.so", "SDL2_ttf"};
@@ -1072,6 +1090,7 @@ bool load_ttf_library() {
     pTTF_CloseFont = (TTF_CloseFont_fn)dlsym(ttf_lib, "TTF_CloseFont");
     pTTF_RenderText_Blended = (TTF_RenderText_Blended_fn)dlsym(ttf_lib, "TTF_RenderUTF8_Blended");
     pTTF_SizeUTF8 = (TTF_SizeUTF8_fn)dlsym(ttf_lib, "TTF_SizeUTF8");
+    pTTF_FontHeight = (TTF_FontHeight_fn)dlsym(ttf_lib, "TTF_FontHeight");
     if (!pTTF_Init || !pTTF_Quit || !pTTF_OpenFont || !pTTF_CloseFont || !pTTF_RenderText_Blended) {
         dlclose(ttf_lib);
         ttf_lib = nullptr;
@@ -1274,6 +1293,7 @@ void draw_text_scissored(SDL_Renderer* renderer, TTF_Font* font, const std::stri
     SDL_RenderSetClipRect(renderer, NULL);
 }
 
+
 // --- THEME SELECTOR ---
 // Forward declaration
 void update_carousel_textures(SDL_Renderer* renderer, const std::vector<MenuItem>& items, int selected,
@@ -1299,6 +1319,9 @@ std::vector<std::string> scan_themes() {
 // Forward declaration (defined after show_theme_selector)
 void load_systems_desc();
 std::string get_system_fullname(const std::string& sys_name);
+// Forward declarations for the SD card update system (defined after show_sort_filter_menu)
+void run_update_flow(SDL_Renderer* renderer, const std::string& font_path, SDL_Texture* bg_tex, bool silent_if_none);
+void run_two_gamepad_patch_flow(SDL_Renderer* renderer, const std::string& font_path, SDL_Texture* bg_tex);
 
 // Forward declarations for audio (defined later in the file)
 extern SoundSample s_click, s_enter, s_back, s_fav;
@@ -1329,7 +1352,9 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
     TTF_Font* f18 = font_cache.count(18) ? font_cache[18] : nullptr;
     TTF_Font* f22 = font_cache.count(22) ? font_cache[22] : nullptr;
 
-    int tab = 0; // 0 = TEMA, 1 = DISPLAY, 2 = OPTIONS
+    int tab = 0; // 0 = TEMA, 1 = DISPLAY, 2 = OPTIONS, 3 = INFO, 4 = TOOLS
+    int tools_sel = 0;
+    const int tools_count = 2; // "Check for Updates", "Download 2-Gamepad Patch"
 
     // Posizione del tema corrente nella lista
     int sel = 0;
@@ -1350,7 +1375,7 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
         {"Show system logo (list)",     &show_system_logo},
     };
     const int disp_count = 10; // 8 bool + 2 cycle (clock format, timezone)
-    int disp_sel = 0;
+    int disp_sel = 0, disp_scroll = 0;
 
     // Voci tab OPTIONS
     // Item 0-2: bool toggle; item 3: startup volume (int, -1=OFF)
@@ -1361,10 +1386,13 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
         {"Music in carousel",        &music_enabled},
         {"Music auto-advance",       &music_autoadvance},
         {"Video preview",            &video_preview_enabled},
+        {"Search: open system",      &search_direct_enter},
+        {"Search: launch game",      &search_direct_launch},
     };
-    const int opt_bool_count = 5;
-    const int opt_count = 9; // 5 bool + 1 int (volume) + 1 int (brightness) + 1 int (sort order) + 1 bool (empty systems)
-    int opt_sel = 0;
+    const int opt_bool_count = 7;
+    const int opt_count = 11; // 7 bool + 1 int (volume) + 1 int (brightness) + 1 int (sort order) + 1 bool (empty systems)
+    int opt_sel = 0, opt_scroll = 0;
+    const int max_menu_visible = 10; // max righe visibili in ogni tab (DISPLAY, OPTIONS)
 
     SDL_Texture* preview_tex = nullptr;
     std::string preview_theme = "";
@@ -1379,7 +1407,8 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
     // --- INFO TAB: system information ---
     struct SysInfo {
         std::string ip, ssid, sd_free, sd_total,
-                    battery_level, battery_status, ram_free, uptime;
+                    battery_level, battery_status, ram_free, uptime,
+                    sd_card_version;
     };
     SysInfo sysinfo;
     Uint32 sysinfo_next_refresh = 0;
@@ -1434,15 +1463,18 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
             char buf[32]; snprintf(buf, sizeof(buf), "%dh %02dm", h, m);
             sysinfo.uptime = buf;
         } else sysinfo.uptime = "N/A";
+        sysinfo.sd_card_version = rdfile("/mnt/sdcard/sd_card_version");
+        if (sysinfo.sd_card_version.empty()) sysinfo.sd_card_version = "N/A";
 #else
-        sysinfo.ip             = "192.168.1.100";
-        sysinfo.ssid           = "MyWiFi";
-        sysinfo.sd_total       = "32.0 GB";
-        sysinfo.sd_free        = "18.5 GB";
-        sysinfo.battery_level  = "75%";
-        sysinfo.battery_status = "Discharging";
-        sysinfo.ram_free       = "256 MB / 512 MB";
-        sysinfo.uptime         = "1h 23m";
+        sysinfo.ip              = "192.168.1.100";
+        sysinfo.ssid            = "MyWiFi";
+        sysinfo.sd_total        = "32.0 GB";
+        sysinfo.sd_free         = "18.5 GB";
+        sysinfo.battery_level   = "75%";
+        sysinfo.battery_status  = "Discharging";
+        sysinfo.ram_free        = "256 MB / 512 MB";
+        sysinfo.uptime          = "1h 23m";
+        sysinfo.sd_card_version = "1.0.0";
 #endif
     };
     refresh_sysinfo();
@@ -1451,6 +1483,32 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
     bool open = true;
     SDL_Event ev;
     Uint32 next_input = SDL_GetTicks() + 200;
+
+    // Auto-grow the menu box width so every tab label fits with at least
+    // 10px of padding on each side, regardless of theme/font. Computed once
+    // (not per-frame) and never shrinks below the theme's configured width.
+    int menu_box_w_adaptive = theme_cfg.menu_box_w;
+    {
+        static const char* tab_labels_measure[] = {"THEME", "DISPLAY", "OPTIONS", "INFO", "TOOLS"};
+        const int n_tabs_measure = 5;
+        int max_label_w = 0;
+        if (f22) {
+            for (int ti = 0; ti < n_tabs_measure; ti++) {
+                int tw = 0, th = 0;
+                if (ttf_size_utf8(f22, tab_labels_measure[ti], &tw, &th) == 0)
+                    max_label_w = std::max(max_label_w, tw);
+            }
+        }
+        if (max_label_w > 0) {
+            int min_tab_w = max_label_w + 20; // 10px padding left + 10px right
+            int min_box_w = min_tab_w * n_tabs_measure;
+            menu_box_w_adaptive = std::max(menu_box_w_adaptive, min_box_w);
+        }
+        int win_w0 = 0, win_h0 = 0;
+        SDL_RenderGetLogicalSize(renderer, &win_w0, &win_h0);
+        if (win_w0 <= 0 || win_h0 <= 0) SDL_GetRendererOutputSize(renderer, &win_w0, &win_h0);
+        if (win_w0 > 0) menu_box_w_adaptive = std::min(menu_box_w_adaptive, win_w0 - 40);
+    }
 
     while (open) {
         while (SDL_PollEvent(&ev)) {
@@ -1461,8 +1519,8 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                 if (SDL_GetTicks() < next_input) continue;
                 int btn = ev.jbutton.button;
                 // L1 (btn 2) → prev tab,  R1 (btn 5) → next tab
-                if (btn == 2) { tab = (tab + 3) % 4; play_sound(s_click); next_input = SDL_GetTicks() + 200; }
-                else if (btn == 5) { tab = (tab + 1) % 4; play_sound(s_click); next_input = SDL_GetTicks() + 200; }
+                if (btn == 2) { tab = (tab + 4) % 5; play_sound(s_click); next_input = SDL_GetTicks() + 200; }
+                else if (btn == 5) { tab = (tab + 1) % 5; play_sound(s_click); next_input = SDL_GetTicks() + 200; }
                 else if (tab == 0) {
                     if (btn == 29 || btn == 30) {
                         sel = (sel - 1 + (int)themes.size()) % (int)themes.size();
@@ -1495,10 +1553,14 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                 } else if (tab == 1) { // tab == 1: DISPLAY
                     if (btn == 29 || btn == 30) {
                         disp_sel = (disp_sel - 1 + disp_count) % disp_count;
+                        if (disp_sel < disp_scroll) disp_scroll = disp_sel;
+                        if (disp_sel >= disp_scroll + max_menu_visible) disp_scroll = disp_sel - max_menu_visible + 1;
                         play_sound(s_click);
                         next_input = SDL_GetTicks() + 150;
                     } else if (btn == 32 || btn == 31) {
                         disp_sel = (disp_sel + 1) % disp_count;
+                        if (disp_sel < disp_scroll) disp_scroll = 0; // wrap around: torna in cima
+                        if (disp_sel >= disp_scroll + max_menu_visible) disp_scroll = disp_sel - max_menu_visible + 1;
                         play_sound(s_click);
                         next_input = SDL_GetTicks() + 150;
                     } else if (btn == 1 || ((disp_sel == 4 || disp_sel == 5) && btn == 31)) { // A o RIGHT sui cycle items
@@ -1526,10 +1588,14 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                 } else if (tab == 2) { // OPTIONS
                     if (btn == 29 || btn == 30) {
                         opt_sel = (opt_sel - 1 + opt_count) % opt_count;
+                        if (opt_sel < opt_scroll) opt_scroll = opt_sel;
+                        if (opt_sel >= opt_scroll + max_menu_visible) opt_scroll = opt_sel - max_menu_visible + 1;
                         play_sound(s_click);
                         next_input = SDL_GetTicks() + 150;
                     } else if (btn == 32 || btn == 31) {
                         opt_sel = (opt_sel + 1) % opt_count;
+                        if (opt_sel < opt_scroll) opt_scroll = 0; // wrap around: torna in cima
+                        if (opt_sel >= opt_scroll + max_menu_visible) opt_scroll = opt_sel - max_menu_visible + 1;
                         play_sound(s_click);
                         next_input = SDL_GetTicks() + 150;
                     } else if (btn == 1) { // A: toggle/cycle
@@ -1563,8 +1629,25 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                         save_options_settings();
                         next_input = SDL_GetTicks() + 200;
                     } else if (btn == 3 || btn == 6) { play_sound(s_back); open = false; }
-                } else { // tab == 3: INFO (read-only)
+                } else if (tab == 3) { // INFO (read-only)
                     if (btn == 3 || btn == 6) { play_sound(s_back); open = false; }
+                } else { // tab == 4: TOOLS
+                    if (btn == 29 || btn == 30) {
+                        tools_sel = (tools_sel - 1 + tools_count) % tools_count;
+                        play_sound(s_click);
+                        next_input = SDL_GetTicks() + 150;
+                    } else if (btn == 32 || btn == 31) {
+                        tools_sel = (tools_sel + 1) % tools_count;
+                        play_sound(s_click);
+                        next_input = SDL_GetTicks() + 150;
+                    } else if (btn == 1) { // A: run selected tool
+                        play_sound(s_enter);
+                        if (tools_sel == 0)
+                            run_update_flow(renderer, font_path, *bg_cur, false);
+                        else
+                            run_two_gamepad_patch_flow(renderer, font_path, *bg_cur);
+                        next_input = SDL_GetTicks() + 300;
+                    } else if (btn == 3 || btn == 6) { play_sound(s_back); open = false; }
                 }
             }
             if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE) open = false;
@@ -1595,7 +1678,7 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
         }
 
         // Central box
-        int bw = theme_cfg.menu_box_w, bh = theme_cfg.menu_box_h;
+        int bw = menu_box_w_adaptive, bh = theme_cfg.menu_box_h;
         int win_w = 0, win_h = 0;
         SDL_RenderGetLogicalSize(renderer, &win_w, &win_h);
         if (win_w <= 0 || win_h <= 0) SDL_GetRendererOutputSize(renderer, &win_w, &win_h);
@@ -1619,9 +1702,9 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
 
         // --- TAB BAR ---
         int tab_h = theme_cfg.menu_tab_h;
-        int tab_w = bw / 4;
-        const char* tab_labels[] = {"THEME", "DISPLAY", "OPTIONS", "INFO"};
-        for (int ti = 0; ti < 4; ti++) {
+        int tab_w = bw / 5;
+        const char* tab_labels[] = {"THEME", "DISPLAY", "OPTIONS", "INFO", "TOOLS"};
+        for (int ti = 0; ti < 5; ti++) {
             SDL_Rect tr = {bx + ti * tab_w, by, tab_w, tab_h};
             if (ti == tab) SDL_SetRenderDrawColor(renderer, theme_cfg.menu_tab_active_bg.r,   theme_cfg.menu_tab_active_bg.g,   theme_cfg.menu_tab_active_bg.b,   theme_cfg.menu_tab_active_bg.a);
             else           SDL_SetRenderDrawColor(renderer, theme_cfg.menu_tab_inactive_bg.r, theme_cfg.menu_tab_inactive_bg.g, theme_cfg.menu_tab_inactive_bg.b, theme_cfg.menu_tab_inactive_bg.a);
@@ -1686,6 +1769,22 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                 }
             }
 
+            // Scrollbar verticale destra (visibile solo se ci sono più temi del visibile)
+            if ((int)themes.size() > visible) {
+                int sb_w = 5, sb_x = bx + bw - sb_w - 5;
+                int sb_y = list_y, sb_h = visible * row_h;
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(renderer, theme_cfg.menu_highlight.r, theme_cfg.menu_highlight.g, theme_cfg.menu_highlight.b, 80);
+                SDL_Rect sb_track = {sb_x, sb_y, sb_w, sb_h};
+                SDL_RenderFillRect(renderer, &sb_track);
+                int total_t = (int)themes.size();
+                int thumb_h = std::max(14, sb_h * visible / total_t);
+                int thumb_y = sb_y + (scroll_t * (sb_h - thumb_h)) / std::max(1, total_t - visible);
+                SDL_SetRenderDrawColor(renderer, theme_cfg.menu_item_selected.r, theme_cfg.menu_item_selected.g, theme_cfg.menu_item_selected.b, 220);
+                SDL_Rect sb_thumb = {sb_x, thumb_y, sb_w, thumb_h};
+                SDL_RenderFillRect(renderer, &sb_thumb);
+            }
+
             if (f18) {
                 SDL_Surface* s = ttf_render_text_blended(f18, "[A] Apply  [B] Close  [R1] Display", theme_cfg.menu_hint);
                 if (s) {
@@ -1702,8 +1801,8 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
             // --- TAB DISPLAY ---
             int row_h = theme_cfg.menu_disp_row_h;
             int start_y = cont_y + 20;
-            for (int i = 0; i < disp_count; i++) {
-                int ry = start_y + i * row_h;
+            for (int i = disp_scroll; i < std::min(disp_scroll + max_menu_visible, disp_count); i++) {
+                int ry = start_y + (i - disp_scroll) * row_h;
                 if (i == disp_sel) {
                     SDL_Rect hl = {bx + 8, ry - 4, bw - 16, row_h - 4};
                     SDL_SetRenderDrawColor(renderer, theme_cfg.menu_highlight.r, theme_cfg.menu_highlight.g, theme_cfg.menu_highlight.b, theme_cfg.menu_highlight.a);
@@ -1758,6 +1857,21 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                 }
             }
 
+            // Scrollbar verticale destra (visibile solo se le voci superano il visibile)
+            if (disp_count > max_menu_visible) {
+                int sb_w = 5, sb_x = bx + bw - sb_w - 5;
+                int sb_y = start_y - 2, sb_h = max_menu_visible * row_h;
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(renderer, theme_cfg.menu_highlight.r, theme_cfg.menu_highlight.g, theme_cfg.menu_highlight.b, 80);
+                SDL_Rect sb_track = {sb_x, sb_y, sb_w, sb_h};
+                SDL_RenderFillRect(renderer, &sb_track);
+                int thumb_h = std::max(14, sb_h * max_menu_visible / disp_count);
+                int thumb_y = sb_y + (disp_scroll * (sb_h - thumb_h)) / std::max(1, disp_count - max_menu_visible);
+                SDL_SetRenderDrawColor(renderer, theme_cfg.menu_item_selected.r, theme_cfg.menu_item_selected.g, theme_cfg.menu_item_selected.b, 220);
+                SDL_Rect sb_thumb = {sb_x, thumb_y, sb_w, thumb_h};
+                SDL_RenderFillRect(renderer, &sb_thumb);
+            }
+
             if (f18) {
                 SDL_Surface* s = ttf_render_text_blended(f18, "[A/►] Toggle/Cycle  [◄] Prev  [B] Close  [L1/R1] Tab", theme_cfg.menu_hint);
                 if (s) {
@@ -1774,8 +1888,8 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
             // --- TAB OPTIONS ---
             int row_h = theme_cfg.menu_disp_row_h;
             int start_y = cont_y + 20;
-            for (int i = 0; i < opt_count; i++) {
-                int ry = start_y + i * row_h;
+            for (int i = opt_scroll; i < std::min(opt_scroll + max_menu_visible, opt_count); i++) {
+                int ry = start_y + (i - opt_scroll) * row_h;
                 if (i == opt_sel) {
                     SDL_Rect hl = {bx + 8, ry - 4, bw - 16, row_h - 4};
                     SDL_SetRenderDrawColor(renderer, theme_cfg.menu_highlight.r, theme_cfg.menu_highlight.g, theme_cfg.menu_highlight.b, theme_cfg.menu_highlight.a);
@@ -1833,6 +1947,21 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                     }
                 }
             }
+            // Scrollbar verticale destra (visibile solo se le voci superano il visibile)
+            if (opt_count > max_menu_visible) {
+                int sb_w = 5, sb_x = bx + bw - sb_w - 5;
+                int sb_y = start_y - 2, sb_h = max_menu_visible * row_h;
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(renderer, theme_cfg.menu_highlight.r, theme_cfg.menu_highlight.g, theme_cfg.menu_highlight.b, 80);
+                SDL_Rect sb_track = {sb_x, sb_y, sb_w, sb_h};
+                SDL_RenderFillRect(renderer, &sb_track);
+                int thumb_h = std::max(14, sb_h * max_menu_visible / opt_count);
+                int thumb_y = sb_y + (opt_scroll * (sb_h - thumb_h)) / std::max(1, opt_count - max_menu_visible);
+                SDL_SetRenderDrawColor(renderer, theme_cfg.menu_item_selected.r, theme_cfg.menu_item_selected.g, theme_cfg.menu_item_selected.b, 220);
+                SDL_Rect sb_thumb = {sb_x, thumb_y, sb_w, thumb_h};
+                SDL_RenderFillRect(renderer, &sb_thumb);
+            }
+
             if (f18) {
                 SDL_Surface* s = ttf_render_text_blended(f18, "[A] Toggle/Cycle  [B] Close  [L1/R1] Tab", theme_cfg.menu_hint);
                 if (s) {
@@ -1845,7 +1974,7 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                     SDL_FreeSurface(s);
                 }
             }
-        } else { // tab == 3: INFO
+        } else if (tab == 3) { // INFO
             // Refresh every 5 seconds
             if (SDL_GetTicks() >= sysinfo_next_refresh) refresh_sysinfo();
 
@@ -1853,6 +1982,7 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
             int ry = cont_y + 14;
             std::pair<const char*, std::string> info_rows[] = {
                 {"Launcher",    LAUNCHER_VERSION},
+                {"SD Card",     sysinfo.sd_card_version},
                 {"IP Address",  sysinfo.ip.empty()   ? "N/A" : sysinfo.ip},
                 {"WiFi SSID",   sysinfo.ssid.empty() ? "N/A" : sysinfo.ssid},
                 {"SD Total",    sysinfo.sd_total},
@@ -1882,6 +2012,35 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
             }
             if (f18) {
                 SDL_Surface* s = ttf_render_text_blended(f18, "[B] Close  [L1/R1] Tab", theme_cfg.menu_hint);
+                if (s) {
+                    SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+                    if (t) { SDL_Rect r = {bx+bw/2-s->w/2, by+bh+6, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+                    SDL_FreeSurface(s);
+                }
+            }
+        } else { // tab == 4: TOOLS
+            int row_h = theme_cfg.menu_disp_row_h;
+            int start_y = cont_y + 20;
+            const char* tool_labels[] = { "Check for Updates", "Download 2-Gamepad Patch" };
+            for (int i = 0; i < tools_count; i++) {
+                int ry = start_y + i * row_h;
+                if (i == tools_sel) {
+                    SDL_Rect hl = {bx + 8, ry - 4, bw - 16, row_h - 4};
+                    SDL_SetRenderDrawColor(renderer, theme_cfg.menu_highlight.r, theme_cfg.menu_highlight.g, theme_cfg.menu_highlight.b, theme_cfg.menu_highlight.a);
+                    SDL_RenderFillRect(renderer, &hl);
+                }
+                SDL_Color lc = (i == tools_sel) ? theme_cfg.menu_item_selected : theme_cfg.menu_item_normal;
+                if (f22) {
+                    SDL_Surface* s = ttf_render_text_blended(f22, tool_labels[i], lc);
+                    if (s) {
+                        SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+                        if (t) { SDL_Rect r = {bx+20, ry+row_h/2-s->h/2, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+                        SDL_FreeSurface(s);
+                    }
+                }
+            }
+            if (f18) {
+                SDL_Surface* s = ttf_render_text_blended(f18, "[A] Run  [B] Close  [L1/R1] Tab", theme_cfg.menu_hint);
                 if (s) {
                     SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
                     if (t) { SDL_Rect r = {bx+bw/2-s->w/2, by+bh+6, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
@@ -2233,7 +2392,26 @@ static int show_search_menu(SDL_Renderer* renderer, const std::string& font_path
                 }
             }
         } else {
-            for (int i = list_scroll; i < std::min(list_scroll + visible, (int)filtered.size()); i++) {
+            const int total = (int)filtered.size();
+            // Scrollbar (solo se la lista non entra tutta)
+            if (total > visible) {
+                const int sb_x     = bx + bw - 8;
+                const int sb_y     = list_area_y;
+                const int sb_h     = list_area_h;
+                const int thumb_h  = std::max(14, sb_h * visible / total);
+                const int thumb_y  = sb_y + (sb_h - thumb_h) * list_scroll / std::max(1, total - visible);
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(renderer, theme_cfg.menu_highlight.r, theme_cfg.menu_highlight.g,
+                                       theme_cfg.menu_highlight.b, 50);
+                SDL_Rect sb_track = {sb_x, sb_y, 5, sb_h};
+                SDL_RenderFillRect(renderer, &sb_track);
+                SDL_SetRenderDrawColor(renderer, theme_cfg.menu_item_selected.r, theme_cfg.menu_item_selected.g,
+                                       theme_cfg.menu_item_selected.b, 200);
+                SDL_Rect sb_thumb = {sb_x, thumb_y, 5, thumb_h};
+                SDL_RenderFillRect(renderer, &sb_thumb);
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND); // rimane BLEND per l'highlight
+            }
+            for (int i = list_scroll; i < std::min(list_scroll + visible, total); i++) {
                 int ry = list_area_y + (i - list_scroll) * row_h;
                 bool sel = (i == list_sel);
                 if (sel) {
@@ -2249,7 +2427,7 @@ static int show_search_menu(SDL_Renderer* renderer, const std::string& font_path
                     if (s) {
                         SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
                         if (t) {
-                            int tw = std::min(s->w, bw - 28);
+                            int tw = std::min(s->w, bw - 36); // -36 per lasciare spazio alla scrollbar
                             SDL_Rect src = {0, 0, tw, s->h};
                             SDL_Rect dst = {bx + 20, ry + row_h/2 - s->h/2, tw, s->h};
                             SDL_RenderCopy(renderer, t, &src, &dst);
@@ -2377,7 +2555,7 @@ int count_games_recursive_impl(const std::string& path, const std::string& sys_n
     int count = 0; DIR *dir = opendir(path.c_str()); struct dirent *ev;
     if (!dir) return 0;
     while ((ev = readdir(dir)) != NULL) {
-        std::string name = ev->d_name; if (name == "." || name == "..") continue;
+        std::string name = ev->d_name; if (name[0] == '.') continue;
         if (ev->d_type == DT_DIR) {
             std::string low_name = name;
             std::transform(low_name.begin(), low_name.end(), low_name.begin(), ::tolower);
@@ -2420,7 +2598,7 @@ std::vector<MenuItem> scan_directory(const std::string& path, bool only_dirs, co
     if (!dir) return items;
     const auto* exts_ptr = sys_context.empty() ? nullptr : (system_configs.find(sys_context) != system_configs.end() ? &system_configs.at(sys_context) : nullptr);
     while ((ev = readdir(dir)) != NULL) {
-        std::string name = ev->d_name; if (name == "." || name == "..") continue;
+        std::string name = ev->d_name; if (name[0] == '.') continue;
         bool is_dir = (ev->d_type == DT_DIR);
         // Filtra cartelle/file nascosti
         {
@@ -3019,8 +3197,11 @@ void start_video_preview(const std::string& video_path) {
         }
 
         // --- Thread decodifica video + timing presentazione ---
+        // time_base del video stream: serve per convertire PTS → secondi
+        double v_tb = av_q2d(fmt_ctx->streams[video_stream]->time_base);
+
         video_decode_thread = std::thread([vpq, v_codec_ctx, sws_ctx, out_w, out_h,
-                                         fps, num_bytes]() {
+                                         fps, num_bytes, v_tb]() {
           try {
             AVFrame* vf  = av_frame_alloc();
             AVFrame* rvf = av_frame_alloc();
@@ -3038,10 +3219,15 @@ void start_video_preview(const std::string& video_path) {
             av_image_fill_arrays(rvf->data, rvf->linesize, lbuf,
                 AV_PIX_FMT_RGBA, out_w, out_h, 1);
 
-            // Audio-master clock: il video si sincronizza sull'audio reale.
-            // Questo compensa automaticamente l'overhead del kernel ARM (HZ=100 → sleep arrotonda a 10ms)
-            // senza dipendere da un timer fisso che accumula errore.
-            int64_t frame_count = 0;
+            // Wall-clock sync: il video usa i PTS reali del frame confrontati con
+            // un clock di parete (steady_clock). Audio e video partono insieme e
+            // il video si sincronizza sul tempo reale trascorso, non sull'audio.
+            // Questo elimina l'imprecisione di SDL_GetQueuedAudioSize() come riferimento
+            // e il problema di stutter causato dal kernel ARM (HZ=100 → sleep ±10ms).
+            std::chrono::steady_clock::time_point wall_start;
+            double pts_start       = 0.0;
+            bool   first_frame     = true;
+            double frame_delay_sec = 1.0 / (fps > 0.0 ? fps : 30.0);
 
             while (true) {
                 AVPacket* vpkt = nullptr;
@@ -3058,7 +3244,7 @@ void start_video_preview(const std::string& video_path) {
                         vpq->flush_requested = false;
                         vpq->flush_done = true;
                         vpq->cv.notify_all();
-                        frame_count = 0; // reset contatore frame al nuovo loop
+                        first_frame = true; // resetta il timing per il nuovo loop
                         continue;
                     }
                     if (vpq->pkts.empty() && vpq->done) break;
@@ -3071,25 +3257,35 @@ void start_video_preview(const std::string& video_path) {
                     while (avcodec_receive_frame(v_codec_ctx, vf) == 0) {
                         if (!video_running) break;
 
-                        // Posizione video corrente (in secondi)
-                        double video_pos_sec = (double)frame_count / fps;
-                        frame_count++;
-
-                        // Posizione audio corrente: byte_suonati / byte_per_secondo
-                        // byte_suonati = totale_inviati_a_SDL - byte_ancora_in_coda_SDL
-                        double audio_pos_sec = 0.0;
-                        if (video_audio_device) {
-                            uint64_t q   = video_audio_queued_bytes.load();
-                            uint64_t sdl = (uint64_t)SDL_GetQueuedAudioSize(video_audio_device);
-                            uint64_t played = (q > sdl) ? q - sdl : 0;
-                            audio_pos_sec = (double)played / 176400.0; // 44100*2ch*2byte
+                        // Ricava PTS del frame in secondi usando il time_base del video stream.
+                        // best_effort_timestamp è più affidabile di pts per file con B-frame.
+                        int64_t raw_pts = (vf->best_effort_timestamp != AV_NOPTS_VALUE)
+                                          ? vf->best_effort_timestamp : vf->pts;
+                        double frame_pts;
+                        if (raw_pts != AV_NOPTS_VALUE && v_tb > 0.0) {
+                            frame_pts = raw_pts * v_tb;
+                        } else {
+                            // Fallback: stima da frame_delay_sec se il file non ha PTS
+                            frame_pts = first_frame ? 0.0 : (pts_start + frame_delay_sec);
                         }
 
-                        double diff = video_pos_sec - audio_pos_sec; // >0 video avanti, <0 video indietro
+                        if (first_frame) {
+                            pts_start  = frame_pts;
+                            wall_start = std::chrono::steady_clock::now();
+                            first_frame = false;
+                        }
+
+                        // Posizione video relativa all'inizio del playback
+                        double video_pos = frame_pts - pts_start;
+
+                        // Tempo reale trascorso dall'inizio
+                        double elapsed = std::chrono::duration<double>(
+                            std::chrono::steady_clock::now() - wall_start).count();
+
+                        double diff = video_pos - elapsed; // >0 video avanti, <0 video indietro
 
                         if (diff < -0.100) {
-                            // Video >100ms in ritardo: salta scala/display per recuperare
-                            // (il decode è già fatto e mantiene lo stato del codec)
+                            // Video >100ms in ritardo: salta display per recuperare
                             continue;
                         }
 
@@ -3101,13 +3297,14 @@ void start_video_preview(const std::string& video_path) {
                             video_frame_ready = true;
                         }
 
-                        // Se video in anticipo sull'audio: dormi la differenza esatta.
-                        // Questo compensa automaticamente l'overshoot del kernel ARM:
-                        // se sleep(33ms)→40ms, il prossimo diff sarà 7ms in meno → sleep più corto.
-                        if (diff > 0.005 && !vpq->flush_requested && video_running) {
-                            int64_t sleep_us = (int64_t)(diff * 1.0e6);
-                            if (sleep_us > 200000) sleep_us = 200000; // cap 200ms
-                            std::this_thread::sleep_for(std::chrono::microseconds(sleep_us));
+                        // Se video in anticipo: dormi fino al momento giusto.
+                        // Ricalcola elapsed dopo sws_scale per includere il tempo di scala.
+                        if (diff > 0.002 && !vpq->flush_requested && video_running) {
+                            double elapsed2 = std::chrono::duration<double>(
+                                std::chrono::steady_clock::now() - wall_start).count();
+                            int64_t sleep_us = (int64_t)((video_pos - elapsed2) * 1.0e6);
+                            if (sleep_us > 1000 && sleep_us < 500000)
+                                std::this_thread::sleep_for(std::chrono::microseconds(sleep_us));
                         }
                     }
                 }
@@ -3337,7 +3534,9 @@ std::vector<MenuItem> load_favorites_as_items() {
     std::vector<MenuItem> fav_items;
     fav_items.reserve(favorites_list.size());
     for (const auto& fav : favorites_list) {
-        fav_items.push_back({fav.display_name, false});
+        MenuItem m(fav.display_name, false);
+        m.game_id = fav.game_id;
+        fav_items.push_back(m);
     }
     return fav_items;
 }
@@ -3391,13 +3590,54 @@ void add_to_lastplayed(const std::string& game_id, const std::string& sys, const
 std::vector<MenuItem> load_lastplayed_as_items() {
     std::vector<MenuItem> lp_items;
     lp_items.reserve(lastplayed_list.size());
-    for (const auto& lp : lastplayed_list)
-        lp_items.push_back({lp.display_name, false});
+    for (const auto& lp : lastplayed_list) {
+        MenuItem m(lp.display_name, false);
+        m.game_id = lp.game_id;
+        lp_items.push_back(m);
+    }
     return lp_items;
 }
 
 // --- USER PERSONAL RATINGS (separate XML storage) ---
 std::map<std::string, int> user_ratings; // game_id -> 1..5, 0 means unset
+
+// --- SORT / FILTER STATE (gamelist) ---
+std::vector<MenuItem> gamelist_base_items; // copia originale prima di sort/filter
+// Sort modes:
+// 0=Name A-Z  1=Name Z-A  2=Year(old)  3=Year(new)
+// 4=PersonalRating↓  5=PersonalRating↑  6=GlobalRating↓  7=GlobalRating↑  8=Genre
+// 9=Play Order (nessun riordino: preserva l'ordine originale di gamelist_base_items —
+//   usato come default per LAST PLAYED per mantenere l'ordine reale di lastplayed_list)
+static const int SF_SORT_PLAYORDER = 9;
+int  sf_sort_mode        = 0;
+std::string sf_filter_genre;
+std::string sf_filter_developer;
+std::string sf_filter_publisher;
+int  sf_filter_min_rating  = 0;   // 0 = nessun filtro (1..5)
+int  sf_filter_min_grating = 0;   // 0 = nessun filtro; 1..5 → 0.2,0.4,0.6,0.8,1.0
+bool sf_filter_cheevos     = false;
+// Gamelist virtuale per favorites/lastplayed/collection (cross-sistema)
+std::map<std::string, GameInfo> sf_aux_gl;
+// Mappa lowercase_nome_item → game_id per il lookup rating nelle viste speciali
+std::map<std::string, std::string> sf_item_gids;
+
+// Converte la stringa rating della gamelist (es. "0.75") in float; -1 se assente/non parsable
+static float parse_grating(const std::string& r) {
+    if (r.empty()) return -1.0f;
+    try { return std::stof(r); } catch (...) { return -1.0f; }
+}
+
+// Restituisce true se sort/filter non è ai valori default
+static bool sf_is_active() {
+    return sf_sort_mode != 0 || !sf_filter_genre.empty() || !sf_filter_developer.empty()
+        || !sf_filter_publisher.empty() || sf_filter_min_rating > 0
+        || sf_filter_min_grating > 0 || sf_filter_cheevos;
+}
+static void sf_reset() {
+    sf_sort_mode = 0; sf_filter_genre.clear(); sf_filter_developer.clear();
+    sf_filter_publisher.clear(); sf_filter_min_rating = 0;
+    sf_filter_min_grating = 0; sf_filter_cheevos = false;
+}
 
 static std::string user_ratings_path() {
     return base_p + "user_ratings.xml";
@@ -3504,15 +3744,13 @@ static std::string build_selected_game_id(const std::vector<MenuItem>& items, in
     if (selected < 0 || selected >= (int)items.size()) return "";
     if (items[selected].is_dir) return "";
 
-    if (in_favorites && selected < (int)favorites_list.size())
-        return favorites_list[selected].game_id;
-    if (in_lastplayed && selected < (int)lastplayed_list.size())
-        return lastplayed_list[selected].game_id;
-    if (in_collection && collection_games.count(current_collection_name)) {
-        const auto& gids = collection_games.at(current_collection_name);
-        if (selected < (int)gids.size()) return gids[selected];
-        return "";
-    }
+    // Per viste speciali usa items[selected].game_id (impostato da load_*_as_items e
+    // build_collection_items; viaggia con l'item durante sort/filter, evitando
+    // la desincronizzazione con favorites_list[selected] / lastplayed_list[selected] / gids[selected]).
+    if ((in_favorites || in_lastplayed || in_collection) && !items[selected].game_id.empty())
+        return items[selected].game_id;
+    if (in_collection) return ""; // item senza game_id (cartella?)
+
 
     if (current_sys.empty()) return "";
     std::string rel_path;
@@ -3879,6 +4117,61 @@ const GameInfo* find_game_info_for_system(const std::string& system, const std::
     return nullptr;
 }
 
+// ---------------------------------------------------------------------------
+// Costruisce sf_aux_gl e sf_item_gids per le viste speciali (fav/lp/col).
+// Chiave in sf_aux_gl = lowercase del nome visualizzato nell'item
+//   Favorites/LastPlayed: display_name (già privo di estensione)
+//   Collections:         stem del filename (senza estensione)
+// ---------------------------------------------------------------------------
+static void build_sf_aux_for_favs() {
+    sf_aux_gl.clear(); sf_item_gids.clear();
+    for (const auto& fav : favorites_list) {
+        std::string sys, fname;
+        split_game_id(fav.game_id, sys, fname);
+        std::string stem = fname;
+        size_t dot = stem.rfind('.');
+        if (dot != std::string::npos) stem = stem.substr(0, dot);
+        std::string key = fav.display_name;
+        std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+        sf_item_gids[key] = fav.game_id;
+        const GameInfo* gi = find_game_info_for_system(sys, stem);
+        if (gi) sf_aux_gl[key] = *gi;
+    }
+}
+
+static void build_sf_aux_for_lp() {
+    sf_aux_gl.clear(); sf_item_gids.clear();
+    for (const auto& lp : lastplayed_list) {
+        std::string sys, fname;
+        split_game_id(lp.game_id, sys, fname);
+        std::string stem = fname;
+        size_t dot = stem.rfind('.');
+        if (dot != std::string::npos) stem = stem.substr(0, dot);
+        std::string key = lp.display_name;
+        std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+        sf_item_gids[key] = lp.game_id;
+        const GameInfo* gi = find_game_info_for_system(sys, stem);
+        if (gi) sf_aux_gl[key] = *gi;
+    }
+}
+
+static void build_sf_aux_for_col(const std::string& col_name) {
+    sf_aux_gl.clear(); sf_item_gids.clear();
+    if (!collection_games.count(col_name)) return;
+    for (const auto& gid : collection_games.at(col_name)) {
+        std::string sys, fname;
+        split_game_id(gid, sys, fname);
+        std::string stem = fname;
+        size_t dot = stem.rfind('.');
+        if (dot != std::string::npos) stem = stem.substr(0, dot);
+        std::string key = stem;
+        std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+        sf_item_gids[key] = gid;
+        const GameInfo* gi = find_game_info_for_system(sys, stem);
+        if (gi) sf_aux_gl[key] = *gi;
+    }
+}
+
 // Funzione helper per word-wrap di una descrizione
 std::vector<std::string> wrap_text(TTF_Font* font, const std::string& text, int max_w) {
     std::vector<std::string> lines;
@@ -3940,6 +4233,1068 @@ static void sort_items_by_display_name(std::vector<MenuItem>& items,
         return get_key(a) < get_key(b);
     });
 }
+
+// ---------------------------------------------------------------------------
+// apply_sort_filter — ricostruisce items da gamelist_base_items applicando
+// lo stato corrente di sf_sort_mode e sf_filter_*.
+// Chiamare dopo ogni cambio di sort/filter e ogni volta che si entra in un
+// sistema (dopo aver impostato gamelist_base_items).
+// ---------------------------------------------------------------------------
+static void apply_sort_filter(std::vector<MenuItem>& items,
+                               const std::map<std::string, GameInfo>& gl,
+                               const std::string& cur_sys,
+                               const std::string& cur_rel) {
+    // Chiave gamelist: stem senza estensione, lowercase
+    auto gl_key_fn = [](const std::string& filename) -> std::string {
+        std::string k = filename;
+        size_t dot = k.find_last_of('.');
+        if (dot != std::string::npos) k = k.substr(0, dot);
+        std::transform(k.begin(), k.end(), k.begin(), ::tolower);
+        return k;
+    };
+
+    // Percorso relativo alla root del sistema (es. "" o "/subfolder")
+    std::string rel_path;
+    if (!cur_sys.empty()) {
+        std::string prefix = "/" + cur_sys;
+        if (cur_rel.rfind(prefix, 0) == 0)
+            rel_path = cur_rel.substr(prefix.length());
+    }
+
+    // Recupera GameInfo per un item
+    auto get_gi = [&](const MenuItem& m) -> const GameInfo* {
+        auto it = gl.find(gl_key_fn(m.name));
+        return (it != gl.end()) ? &it->second : nullptr;
+    };
+
+    // Ottieni game_id per il lookup rating personale.
+    // Viste normali: costruisce "sys/relpath/filename".
+    // Viste speciali (cur_sys==""): cerca in sf_item_gids (popolato da build_sf_aux_*).
+    auto get_rating_gid = [&](const MenuItem& m) -> std::string {
+        if (!cur_sys.empty()) return cur_sys + rel_path + "/" + m.name;
+        std::string key = gl_key_fn(m.name);
+        auto it2 = sf_item_gids.find(key);
+        return (it2 != sf_item_gids.end()) ? it2->second : "";
+    };
+
+    // Display name per il sort (gamelist se show_gamelist_names, altrimenti stem)
+    auto sort_name = [&](const MenuItem& m) -> std::string {
+        if (show_gamelist_names) {
+            const GameInfo* gi = get_gi(m);
+            if (gi && !gi->name.empty()) {
+                std::string n = gi->name;
+                std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+                return n;
+            }
+        }
+        std::string n = m.name;
+        size_t dot = n.find_last_of('.');
+        if (dot != std::string::npos) n = n.substr(0, dot);
+        std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+        return n;
+    };
+
+    std::vector<MenuItem> dirs, games;
+    for (const auto& m : gamelist_base_items) {
+        if (m.is_dir) { dirs.push_back(m); continue; }
+
+        const GameInfo* gi = get_gi(m);
+
+        // --- FILTRI ---
+        if (!sf_filter_genre.empty()) {
+            if (!gi || gi->genre != sf_filter_genre) continue;
+        }
+        if (!sf_filter_developer.empty()) {
+            if (!gi || gi->developer != sf_filter_developer) continue;
+        }
+        if (!sf_filter_publisher.empty()) {
+            if (!gi || gi->publisher != sf_filter_publisher) continue;
+        }
+        if (sf_filter_min_rating > 0) {
+            std::string gid = get_rating_gid(m);
+            if (get_user_rating(gid) < sf_filter_min_rating) continue;
+        }
+        if (sf_filter_min_grating > 0) {
+            // Soglie: 1→0.2, 2→0.4, 3→0.6, 4→0.8, 5→1.0
+            float thresh = sf_filter_min_grating * 0.2f;
+            float gr = gi ? parse_grating(gi->rating) : -1.0f;
+            if (gr < thresh) continue;
+        }
+        if (sf_filter_cheevos) {
+            if (!gi || !gi->cheevos) continue;
+        }
+
+        games.push_back(m);
+    }
+
+    // --- SORT ---
+    switch (sf_sort_mode) {
+        case 0: // Nome A→Z
+            std::sort(games.begin(), games.end(), [&](const MenuItem& a, const MenuItem& b) {
+                return sort_name(a) < sort_name(b);
+            });
+            break;
+        case 1: // Nome Z→A
+            std::sort(games.begin(), games.end(), [&](const MenuItem& a, const MenuItem& b) {
+                return sort_name(a) > sort_name(b);
+            });
+            break;
+        case 2: // Anno ↑
+            std::sort(games.begin(), games.end(), [&](const MenuItem& a, const MenuItem& b) {
+                const GameInfo* ga = get_gi(a); const GameInfo* gb = get_gi(b);
+                std::string ya = (ga && ga->releasedate.size() >= 4) ? ga->releasedate.substr(0, 4) : "0000";
+                std::string yb = (gb && gb->releasedate.size() >= 4) ? gb->releasedate.substr(0, 4) : "0000";
+                if (ya != yb) return ya < yb;
+                return sort_name(a) < sort_name(b);
+            });
+            break;
+        case 3: // Anno ↓
+            std::sort(games.begin(), games.end(), [&](const MenuItem& a, const MenuItem& b) {
+                const GameInfo* ga = get_gi(a); const GameInfo* gb = get_gi(b);
+                std::string ya = (ga && ga->releasedate.size() >= 4) ? ga->releasedate.substr(0, 4) : "0000";
+                std::string yb = (gb && gb->releasedate.size() >= 4) ? gb->releasedate.substr(0, 4) : "0000";
+                if (ya != yb) return ya > yb;
+                return sort_name(a) < sort_name(b);
+            });
+            break;
+        case 4: // Personal Rating ↓
+            std::sort(games.begin(), games.end(), [&](const MenuItem& a, const MenuItem& b) {
+                int ra = get_user_rating(get_rating_gid(a));
+                int rb = get_user_rating(get_rating_gid(b));
+                if (ra != rb) return ra > rb;
+                return sort_name(a) < sort_name(b);
+            });
+            break;
+        case 5: // Personal Rating ↑
+            std::sort(games.begin(), games.end(), [&](const MenuItem& a, const MenuItem& b) {
+                int ra = get_user_rating(get_rating_gid(a));
+                int rb = get_user_rating(get_rating_gid(b));
+                if (ra != rb) return ra < rb;
+                return sort_name(a) < sort_name(b);
+            });
+            break;
+        case 6: // Global Rating ↓
+            std::sort(games.begin(), games.end(), [&](const MenuItem& a, const MenuItem& b) {
+                const GameInfo* ga = get_gi(a); const GameInfo* gb = get_gi(b);
+                float ra = ga ? parse_grating(ga->rating) : -1.0f;
+                float rb = gb ? parse_grating(gb->rating) : -1.0f;
+                if (ra != rb) return ra > rb;
+                return sort_name(a) < sort_name(b);
+            });
+            break;
+        case 7: // Global Rating ↑
+            std::sort(games.begin(), games.end(), [&](const MenuItem& a, const MenuItem& b) {
+                const GameInfo* ga = get_gi(a); const GameInfo* gb = get_gi(b);
+                float ra = ga ? parse_grating(ga->rating) : -1.0f;
+                float rb = gb ? parse_grating(gb->rating) : -1.0f;
+                // Giochi senza rating vanno in fondo anche in ordine ascendente
+                if ((ra < 0) != (rb < 0)) return rb < 0;
+                if (ra != rb) return ra < rb;
+                return sort_name(a) < sort_name(b);
+            });
+            break;
+        case 8: // Genere
+            std::sort(games.begin(), games.end(), [&](const MenuItem& a, const MenuItem& b) {
+                const GameInfo* ga = get_gi(a); const GameInfo* gb = get_gi(b);
+                std::string sa = ga ? ga->genre : ""; std::string sb = gb ? gb->genre : "";
+                if (sa != sb) return sa < sb;
+                return sort_name(a) < sort_name(b);
+            });
+            break;
+        case SF_SORT_PLAYORDER: // Play Order — nessun riordino, preserva l'ordine originale
+            break;
+    }
+
+    // Cartelle sempre prima, poi giochi ordinati/filtrati
+    items.clear();
+    items.insert(items.end(), dirs.begin(), dirs.end());
+    items.insert(items.end(), games.begin(), games.end());
+}
+
+// --- SORT / FILTER MENU ---
+// --- SORT / FILTER MENU ---
+// Aperto con SETTINGS (btn 13) nella gamelist.
+// Ritorna true se l'utente ha modificato sort o filtri.
+// Usare current_gamelist per costruire le liste dinamiche di genere/developer/publisher.
+static bool show_sort_filter_menu(SDL_Renderer* renderer, const std::string& font_path,
+                                   SDL_Texture* bg_tex,
+                                   const std::map<std::string, GameInfo>& gl) {
+    if (font_cache.find(18) == font_cache.end()) font_cache[18] = ttf_open_font(font_path, 18);
+    if (font_cache.find(22) == font_cache.end()) font_cache[22] = ttf_open_font(font_path, 22);
+    TTF_Font* f18 = font_cache.count(18) ? font_cache[18] : nullptr;
+    TTF_Font* f22 = font_cache.count(22) ? font_cache[22] : nullptr;
+    if (!f18 && !f22) return false;
+    TTF_Font* fT = f22 ? f22 : f18;
+    TTF_Font* fS = f18 ? f18 : f22;
+
+    // --- Costruzione liste dinamiche da gamelist ---
+    std::vector<std::string> genres     = {""};  // "" = Tutti
+    std::vector<std::string> developers = {""};
+    std::vector<std::string> publishers = {""};
+    {
+        std::set<std::string> gs, ds, ps;
+        for (const auto& kv : gl) {
+            if (!kv.second.genre.empty())     gs.insert(kv.second.genre);
+            if (!kv.second.developer.empty()) ds.insert(kv.second.developer);
+            if (!kv.second.publisher.empty()) ps.insert(kv.second.publisher);
+        }
+        genres.insert(genres.end(), gs.begin(), gs.end());
+        developers.insert(developers.end(), ds.begin(), ds.end());
+        publishers.insert(publishers.end(), ps.begin(), ps.end());
+    }
+
+    // Posizione corrente nei vettori per i filtri
+    auto vec_idx = [](const std::vector<std::string>& v, const std::string& s) -> int {
+        for (int i = 0; i < (int)v.size(); i++) if (v[i] == s) return i;
+        return 0;
+    };
+    int gi_idx   = vec_idx(genres,     sf_filter_genre);
+    int di_idx   = vec_idx(developers, sf_filter_developer);
+    int pi_idx   = vec_idx(publishers, sf_filter_publisher);
+    int min_rat  = sf_filter_min_rating;
+    int min_grat = sf_filter_min_grating;
+    bool cheevos_f = sf_filter_cheevos;
+    int sort_m   = sf_sort_mode;
+
+    // Labels tab SORT
+    static const char* sort_labels[] = {
+        "Name A -> Z", "Name Z -> A",
+        "Year: Oldest first", "Year: Newest first",
+        "Personal Rating (high to low)",
+        "Personal Rating (low to high)",
+        "Global Rating (high to low)",
+        "Global Rating (low to high)",
+        "Genre",
+        "Play Order (original)"
+    };
+    const int N_SORTS = 10;
+
+    // Labels tab FILTER
+    const char* filter_labels[] = {
+        "Genre", "Developer", "Publisher",
+        "Min. Personal Rating", "Min. Global Rating",
+        "RetroAchievements only"
+    };
+    const int N_FILTERS = 6;
+
+    int tab = 0; // 0=ORDINA 1=FILTRA
+    int sel = sort_m; // selezione tab ORDINA
+    int fsel = 0;     // selezione tab FILTRA
+    const int max_vis = 10;
+    int scroll = 0, fscroll = 0;
+    bool changed = false;
+    bool open = true;
+    Uint32 next_input = SDL_GetTicks() + 200;
+
+    // Dimensioni finestra: usa il logical size (come show_search_menu) per centrare il box correttamente
+    int win_w = 0, win_h = 0;
+    SDL_RenderGetLogicalSize(renderer, &win_w, &win_h);
+    if (win_w <= 0 || win_h <= 0) SDL_GetRendererOutputSize(renderer, &win_w, &win_h);
+    if (win_w <= 0) win_w = 1024;
+    if (win_h <= 0) win_h = 600;
+
+    // Dimensioni box
+    const int bw = 560, bh = 420;
+    const int bx = (win_w - bw) / 2, by_box = (win_h - bh) / 2;
+    const int tab_h = 36, row_h = 34;
+    const int list_y = by_box + tab_h + 10;
+
+    while (open) {
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_QUIT) { open = false; break; }
+            if (ev.type != SDL_JOYBUTTONDOWN && ev.type != SDL_KEYDOWN) continue;
+            if (SDL_GetTicks() < next_input) continue;
+
+            int btn = -1;
+            if (ev.type == SDL_JOYBUTTONDOWN) {
+                btn = ev.jbutton.button;
+            } else {
+                switch (ev.key.keysym.sym) {
+                    case SDLK_UP:       btn = 29; break;
+                    case SDLK_DOWN:     btn = 32; break;
+                    case SDLK_LEFT:     btn = 30; break;
+                    case SDLK_RIGHT:    btn = 31; break;
+                    case SDLK_a:
+                    case SDLK_RETURN:   btn = 1;  break;
+                    case SDLK_b:
+                    case SDLK_x:
+                    case SDLK_ESCAPE:   btn = 3;  break;
+                    case SDLK_l:        btn = 2;  break;
+                    case SDLK_r:        btn = 5;  break;
+                    case SDLK_TAB:      btn = 2;  break; // Tab = L1 = switch tab
+                    default: break;
+                }
+            }
+            if (btn < 0) continue;
+            next_input = SDL_GetTicks() + 150;
+
+            // Cambia tab con L1/R1 (o Tab)
+            if (btn == 2 || btn == 5) { tab = 1 - tab; continue; }
+            // Chiudi con B o SETTINGS
+            if (btn == 3 || btn == 13) { open = false; break; }
+
+            if (tab == 0) { // --- TAB ORDINA ---
+                if (btn == 29) { sel = std::max(0, sel - 1); if (sel < scroll) scroll = sel; }
+                if (btn == 32) { sel = std::min(N_SORTS - 1, sel + 1); if (sel >= scroll + max_vis) scroll = sel - max_vis + 1; }
+                if (btn == 1) { // A: applica sort
+                    sort_m = sel; changed = true; open = false; break;
+                }
+            } else { // --- TAB FILTRA ---
+                if (btn == 29) { fsel = std::max(0, fsel - 1); if (fsel < fscroll) fscroll = fsel; }
+                if (btn == 32) { fsel = std::min(N_FILTERS - 1, fsel + 1); if (fsel >= fscroll + max_vis) fscroll = fsel - max_vis + 1; }
+                if (btn == 30) { // LEFT
+                    if (fsel == 0 && !genres.empty())     { gi_idx = (gi_idx - 1 + (int)genres.size()) % (int)genres.size(); changed = true; }
+                    if (fsel == 1 && !developers.empty()) { di_idx = (di_idx - 1 + (int)developers.size()) % (int)developers.size(); changed = true; }
+                    if (fsel == 2 && !publishers.empty()) { pi_idx = (pi_idx - 1 + (int)publishers.size()) % (int)publishers.size(); changed = true; }
+                    if (fsel == 3) { min_rat  = std::max(0, min_rat  - 1); changed = true; }
+                    if (fsel == 4) { min_grat = std::max(0, min_grat - 1); changed = true; }
+                }
+                if (btn == 31) { // RIGHT
+                    if (fsel == 0 && !genres.empty())     { gi_idx = (gi_idx + 1) % (int)genres.size(); changed = true; }
+                    if (fsel == 1 && !developers.empty()) { di_idx = (di_idx + 1) % (int)developers.size(); changed = true; }
+                    if (fsel == 2 && !publishers.empty()) { pi_idx = (pi_idx + 1) % (int)publishers.size(); changed = true; }
+                    if (fsel == 3) { min_rat  = std::min(5, min_rat  + 1); changed = true; }
+                    if (fsel == 4) { min_grat = std::min(5, min_grat + 1); changed = true; }
+                }
+                if (btn == 1) { // A
+                    if (fsel == 5) { cheevos_f = !cheevos_f; changed = true; } // RetroAchievements ora è indice 5
+                }
+            }
+        }
+
+        // --- RENDER --- (identico a show_search_menu e show_theme_menu)
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        SDL_RenderClear(renderer);
+        if (bg_tex) { SDL_Rect bgr = {0, 0, win_w, win_h}; SDL_RenderCopy(renderer, bg_tex, NULL, &bgr); }
+
+        // Overlay semi-trasparente (stesso approccio di search/theme)
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer, theme_cfg.menu_overlay.r, theme_cfg.menu_overlay.g,
+                               theme_cfg.menu_overlay.b, theme_cfg.menu_overlay.a);
+        SDL_RenderFillRect(renderer, NULL);
+
+        // Box (stessi colori e alpha di search/theme)
+        SDL_Rect box = {bx, by_box, bw, bh};
+        SDL_SetRenderDrawColor(renderer, theme_cfg.menu_box_bg.r, theme_cfg.menu_box_bg.g,
+                               theme_cfg.menu_box_bg.b, theme_cfg.menu_box_bg.a);
+        SDL_RenderFillRect(renderer, &box);
+        SDL_SetRenderDrawColor(renderer, theme_cfg.menu_box_border.r, theme_cfg.menu_box_border.g,
+                               theme_cfg.menu_box_border.b, theme_cfg.menu_box_border.a);
+        SDL_RenderDrawRect(renderer, &box);
+
+        // Tab bar
+        const char* tab_names[] = {"SORT", "FILTER"};
+        int tab_w = bw / 2;
+        for (int ti = 0; ti < 2; ti++) {
+            SDL_Rect tr = {bx + ti * tab_w, by_box, tab_w, tab_h};
+            bool active = (ti == tab);
+            SDL_SetRenderDrawColor(renderer,
+                active ? theme_cfg.menu_tab_active_bg.r   : theme_cfg.menu_tab_inactive_bg.r,
+                active ? theme_cfg.menu_tab_active_bg.g   : theme_cfg.menu_tab_inactive_bg.g,
+                active ? theme_cfg.menu_tab_active_bg.b   : theme_cfg.menu_tab_inactive_bg.b,
+                active ? theme_cfg.menu_tab_active_bg.a   : theme_cfg.menu_tab_inactive_bg.a);
+            SDL_RenderFillRect(renderer, &tr);
+            SDL_SetRenderDrawColor(renderer, theme_cfg.menu_tab_border.r, theme_cfg.menu_tab_border.g,
+                                   theme_cfg.menu_tab_border.b, theme_cfg.menu_tab_border.a);
+            SDL_RenderDrawRect(renderer, &tr);
+            SDL_Color tc = active ? theme_cfg.menu_tab_label_active : theme_cfg.menu_tab_label_normal;
+            if (fT) {
+                SDL_Surface* s = ttf_render_text_blended(fT, tab_names[ti], tc);
+                if (s) {
+                    SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+                    if (t) { SDL_Rect r = {bx + ti*tab_w + tab_w/2 - s->w/2, by_box + tab_h/2 - s->h/2, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+                    SDL_FreeSurface(s);
+                }
+            }
+        }
+
+        int item_x = bx + 16;
+        int item_w = bw - 32;
+
+        if (tab == 0) { // --- TAB ORDINA ---
+            int vis = std::min(N_SORTS, max_vis);
+            for (int i = scroll; i < scroll + vis && i < N_SORTS; i++) {
+                int ry = list_y + (i - scroll) * row_h;
+                bool is_sel = (i == sel);
+                bool is_cur = (i == sort_m);
+                if (is_sel) {
+                    SDL_Rect hr = {bx + 2, ry, bw - 4, row_h - 2};
+                    SDL_SetRenderDrawColor(renderer, theme_cfg.menu_highlight.r, theme_cfg.menu_highlight.g,
+                                          theme_cfg.menu_highlight.b, theme_cfg.menu_highlight.a);
+                    SDL_RenderFillRect(renderer, &hr);
+                }
+                SDL_Color col = is_sel ? theme_cfg.menu_item_selected : theme_cfg.menu_item_normal;
+                // Checkmark se è il sort corrente
+                std::string lbl = (is_cur ? "\xe2\x96\xb8 " : "  ");
+                lbl += sort_labels[i];
+                if (fT) {
+                    SDL_Surface* s = ttf_render_text_blended(fT, lbl.c_str(), col);
+                    if (s) { SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s); if (t) { SDL_Rect r = {item_x, ry + (row_h - s->h)/2, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); } SDL_FreeSurface(s); }
+                }
+            }
+            // Scrollbar
+            if (N_SORTS > max_vis) {
+                int sb_h = (bh - tab_h - 20);
+                int thumb_h = std::max(14, sb_h * max_vis / N_SORTS);
+                int thumb_y = list_y + ((sb_h - thumb_h) * scroll) / std::max(1, N_SORTS - max_vis);
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(renderer, theme_cfg.menu_highlight.r, theme_cfg.menu_highlight.g, theme_cfg.menu_highlight.b, 60);
+                SDL_Rect sb_track = {bx + 5, list_y, 4, sb_h}; SDL_RenderFillRect(renderer, &sb_track);
+                SDL_SetRenderDrawColor(renderer, theme_cfg.menu_item_selected.r, theme_cfg.menu_item_selected.g, theme_cfg.menu_item_selected.b, 220);
+                SDL_Rect sb_thumb = {bx + 5, thumb_y, 4, thumb_h}; SDL_RenderFillRect(renderer, &sb_thumb);
+            }
+        } else { // --- TAB FILTRA ---
+            // Descrizioni valori
+            const char* filt_values[6];
+            std::string gv = genres.empty()     ? "--" : (genres[gi_idx].empty()     ? "All" : genres[gi_idx]);
+            std::string dv = developers.empty() ? "--" : (developers[di_idx].empty() ? "All" : developers[di_idx]);
+            std::string pv = publishers.empty() ? "--" : (publishers[pi_idx].empty() ? "All" : publishers[pi_idx]);
+            static const char* rat_labels[]  = {"All", "1+", "2+", "3+", "4+", "5"};
+            static const char* grat_labels[] = {"All", "20%+", "40%+", "60%+", "80%+", "100%"};
+            std::string rv  = rat_labels [std::max(0, std::min(5, min_rat))];
+            std::string grv = grat_labels[std::max(0, std::min(5, min_grat))];
+            std::string cv  = cheevos_f ? "Yes" : "No";
+            filt_values[0] = gv.c_str(); filt_values[1] = dv.c_str();
+            filt_values[2] = pv.c_str(); filt_values[3] = rv.c_str();
+            filt_values[4] = grv.c_str(); filt_values[5] = cv.c_str();
+
+            for (int i = fscroll; i < fscroll + max_vis && i < N_FILTERS; i++) {
+                int ry = list_y + (i - fscroll) * row_h;
+                bool is_sel = (i == fsel);
+                if (is_sel) {
+                    SDL_Rect hr = {bx + 2, ry, bw - 4, row_h - 2};
+                    SDL_SetRenderDrawColor(renderer, theme_cfg.menu_highlight.r, theme_cfg.menu_highlight.g,
+                                          theme_cfg.menu_highlight.b, theme_cfg.menu_highlight.a);
+                    SDL_RenderFillRect(renderer, &hr);
+                }
+                SDL_Color col = is_sel ? theme_cfg.menu_item_selected : theme_cfg.menu_item_normal;
+                // Label a sinistra
+                if (fT) {
+                    SDL_Surface* s = ttf_render_text_blended(fT, filter_labels[i], col);
+                    if (s) { SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s); if (t) { SDL_Rect r = {item_x, ry + (row_h - s->h)/2, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); } SDL_FreeSurface(s); }
+                }
+                // Valore a destra
+                if (fT) {
+                    SDL_Surface* s = ttf_render_text_blended(fT, filt_values[i], col);
+                    if (s) { SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s); if (t) { SDL_Rect r = {bx + bw - 16 - s->w, ry + (row_h - s->h)/2, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); } SDL_FreeSurface(s); }
+                }
+            }
+        }
+
+        // Hint basso
+        if (fS) {
+            SDL_Surface* s = ttf_render_text_blended(fS,
+                tab == 0 ? "A=Select sort   B=Close   L1/R1=Switch tab"
+                : (fsel == 5) ? "A=Toggle on/off   B=Close   L1/R1=Switch tab"
+                              : "< >=Change value   B=Close   L1/R1=Switch tab",
+                theme_cfg.menu_hint);
+            if (s) {
+                SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+                if (t) { SDL_Rect r = {bx + bw/2 - s->w/2, by_box + bh - s->h - 8, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+                SDL_FreeSurface(s);
+            }
+        }
+
+        SDL_RenderPresent(renderer);
+    }
+
+    if (changed) {
+        // Aggiorna stato globale
+        sf_sort_mode          = sort_m;
+        sf_filter_genre       = genres.empty()     ? "" : genres[gi_idx];
+        sf_filter_developer   = developers.empty() ? "" : developers[di_idx];
+        sf_filter_publisher   = publishers.empty() ? "" : publishers[pi_idx];
+        sf_filter_min_rating  = min_rat;
+        sf_filter_min_grating = min_grat;
+        sf_filter_cheevos     = cheevos_f;
+    }
+    return changed;
+}
+
+// ---------------------------------------------------------------------------
+// --- SD CARD UPDATE SYSTEM ---
+// Integrates the standalone update scripts (bin/download_updates.sh,
+// bin/download_two_gamepad2_patch.sh) into the launcher UI: a lightweight
+// version check is reimplemented here in C++ (so we can show a Yes/No prompt
+// before touching anything), while the actual download/backup/unzip work is
+// still delegated to the existing shell scripts, unmodified, exactly as they
+// already run when launched manually from the GSG's stock browser — LED
+// feedback included.
+// ---------------------------------------------------------------------------
+
+// Extracts the first "N.N.N" version pattern found in a string. Mirrors the
+// shell scripts' `sed -n -E 's/.*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n1`.
+static bool parse_semver(const std::string& s, int& maj, int& min_, int& pat) {
+    for (size_t i = 0; i < s.size(); i++) {
+        if (!isdigit((unsigned char)s[i])) continue;
+        size_t p = i;
+        std::string a, b, c;
+        while (p < s.size() && isdigit((unsigned char)s[p])) a += s[p++];
+        if (p >= s.size() || s[p] != '.') continue;
+        p++;
+        while (p < s.size() && isdigit((unsigned char)s[p])) b += s[p++];
+        if (b.empty() || p >= s.size() || s[p] != '.') continue;
+        p++;
+        while (p < s.size() && isdigit((unsigned char)s[p])) c += s[p++];
+        if (c.empty()) continue;
+        maj = atoi(a.c_str()); min_ = atoi(b.c_str()); pat = atoi(c.c_str());
+        return true;
+    }
+    return false;
+}
+
+// Extracts the Google Drive file ID from a "https://drive.google.com/file/d/<ID>/view..." URL.
+static std::string gdrive_file_id(const std::string& url) {
+    size_t p = url.find("/d/");
+    if (p == std::string::npos) return "";
+    p += 3;
+    size_t e = url.find('/', p);
+    return (e == std::string::npos) ? url.substr(p) : url.substr(p, e - p);
+}
+
+// Downloads a small Google Drive file (no "can't scan for viruses" interstitial expected)
+// with a short timeout, so a boot-time check never hangs the launcher on flaky/no WiFi.
+static bool curl_download_small(const std::string& url, const std::string& out_path) {
+    std::string id = gdrive_file_id(url);
+    if (id.empty()) return false;
+    ::remove(out_path.c_str());
+    std::string cmd = "curl -k -L -s --connect-timeout 4 -m 8 \"https://drive.google.com/uc?export=download&id=" +
+                       id + "\" -o \"" + out_path + "\" 2>/dev/null";
+    system(cmd.c_str());
+    std::ifstream f(out_path, std::ios::binary | std::ios::ate);
+    return f.good() && f.tellg() > 0;
+}
+
+enum class UpdateKind { NONE, FULL, PATCH, ERR };
+
+struct UpdateCheckResult {
+    UpdateKind kind = UpdateKind::ERR;
+    std::string local_version;
+    std::string remote_version;
+};
+
+// Reimplements the version-comparison logic of bin/download_updates.sh in C++,
+// without downloading/applying anything. Deliberately mirrors the shell script's
+// comparison exactly (same quirks included) so behavior stays identical whether
+// the update is triggered from the launcher or run standalone from the browser.
+static UpdateCheckResult check_for_update() {
+    UpdateCheckResult res;
+#ifdef NATIVE_BASE_PATH
+    return res; // update checks are device-only; native preview build always reports ERR (silently ignored by callers)
+#else
+    const char* VERSION_CHECK_URL = "https://drive.google.com/file/d/1l21nYLdOAN3M6QrWAyYi_QIah7c5_6yG/view?usp=drive_link";
+    const char* LOCAL_VERSION_FILE = "/mnt/sdcard/sd_card_version";
+    const char* TMP_VERSION_FILE   = "/tmp/gsg_remote_version.txt";
+
+    std::ifstream lf(LOCAL_VERSION_FILE);
+    if (!lf) return res;
+    std::string local_content((std::istreambuf_iterator<char>(lf)), std::istreambuf_iterator<char>());
+    int lmaj, lmin, lpat;
+    if (!parse_semver(local_content, lmaj, lmin, lpat)) return res;
+
+    if (!curl_download_small(VERSION_CHECK_URL, TMP_VERSION_FILE)) return res;
+    std::ifstream rf(TMP_VERSION_FILE);
+    std::string remote_content((std::istreambuf_iterator<char>(rf)), std::istreambuf_iterator<char>());
+    ::remove(TMP_VERSION_FILE);
+    int rmaj, rmin, rpat;
+    if (!parse_semver(remote_content, rmaj, rmin, rpat)) return res;
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%d.%d.%d", lmaj, lmin, lpat); res.local_version = buf;
+    snprintf(buf, sizeof(buf), "%d.%d.%d", rmaj, rmin, rpat); res.remote_version = buf;
+
+    if (rmaj == lmaj && rmin == lmin && rpat == lpat)      res.kind = UpdateKind::NONE;
+    else if (rmin > lmin || rmaj > lmaj)                   res.kind = UpdateKind::FULL;  // full SD card upgrade
+    else if (rpat > lpat)                                  res.kind = UpdateKind::PATCH; // partial update
+    else                                                    res.kind = UpdateKind::ERR;   // remote older than local (unexpected)
+    return res;
+#endif
+}
+
+// Free space available at `path`, in GB, or -1.0 if it can't be determined
+// (in which case callers should not block on it — an unknown check isn't a
+// reason to stop someone who may well have plenty of space).
+static double free_space_gb(const char* path) {
+    struct statvfs sv;
+    if (statvfs(path, &sv) != 0) return -1.0;
+    return (double)sv.f_bavail * sv.f_frsize / 1e9;
+}
+
+// Battery percentage (0-100), or -1 if it can't be read (native preview, or
+// hardware with no battery node) — callers shouldn't block on unknown.
+static int read_battery_percent() {
+    std::ifstream f("/sys/class/power_supply/battery/capacity");
+    if (!f) return -1;
+    int pct = -1;
+    if (!(f >> pct)) return -1;
+    return pct;
+}
+
+// True if the battery reports "Charging" or "Full" — on external power a
+// low percentage isn't a reason to block an update (same file/paths used
+// for the INFO tab's battery readout elsewhere in this file).
+static bool battery_is_charging() {
+    std::ifstream f("/sys/class/power_supply/battery/status");
+    if (!f) return false;
+    std::string s; f >> s;
+    return s == "Charging" || s == "Full";
+}
+
+// Reads /tmp/update/progress, written once a second by download_updates.sh's
+// curl_with_progress helper as "downloaded_bytes total_bytes" (total is 0
+// when the server didn't report a Content-Length). Leaves downloaded/total
+// untouched (caller keeps last-known values) if the file is missing/unreadable.
+static void read_update_progress(long long& downloaded, long long& total) {
+    std::ifstream f("/tmp/update/progress");
+    if (!f) return;
+    long long d = 0, t = 0;
+    if (f >> d >> t) { downloaded = d; total = t; }
+}
+
+// Reads /tmp/update/apply_progress, written every 20 files by
+// download_updates.sh's apply_update_zip() as "files_moved files_total".
+// Leaves moved/total_files untouched if the file is missing/unreadable —
+// briefly the case right when the "applying" phase starts, before the file
+// list has been counted yet.
+static void read_apply_progress(long long& moved, long long& total_files) {
+    std::ifstream f("/tmp/update/apply_progress");
+    if (!f) return;
+    long long m = 0, t = 0;
+    if (f >> m >> t) { moved = m; total_files = t; }
+}
+
+// True once download_updates.sh has written "applying" to /tmp/update/phase
+// (right before it starts extracting/moving files into place) — that step is
+// local mv/unzip work with no further network progress to report, and for a
+// full upgrade with many files it can take a while, so the frontend needs a
+// different message instead of leaving "Downloading..." frozen at 100%.
+static bool update_is_applying() {
+    std::ifstream f("/tmp/update/phase");
+    if (!f) return false;
+    std::string phase;
+    f >> phase;
+    return phase == "applying";
+}
+
+// Like show_wait_screen, but with a progress bar underneath the message.
+// When total > 0 the bar fills 0-100%; otherwise (server didn't report a
+// size) it just shows the downloaded amount as an indeterminate readout.
+static void show_progress_screen(SDL_Renderer* renderer, const std::string& font_path,
+                                  SDL_Texture* bg_tex, const std::string& message,
+                                  long long downloaded, long long total) {
+    if (font_cache.find(24) == font_cache.end()) font_cache[24] = ttf_open_font(font_path, 24);
+    if (font_cache.find(18) == font_cache.end()) font_cache[18] = ttf_open_font(font_path, 18);
+    TTF_Font* f24 = font_cache.count(24) ? font_cache[24] : nullptr;
+    TTF_Font* f18 = font_cache.count(18) ? font_cache[18] : nullptr;
+
+    int win_w = 0, win_h = 0;
+    SDL_RenderGetLogicalSize(renderer, &win_w, &win_h);
+    if (win_w <= 0 || win_h <= 0) SDL_GetRendererOutputSize(renderer, &win_w, &win_h);
+
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    if (bg_tex) { SDL_Rect bgr = {0, 0, win_w, win_h}; SDL_RenderCopy(renderer, bg_tex, NULL, &bgr); }
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, theme_cfg.menu_overlay.r, theme_cfg.menu_overlay.g, theme_cfg.menu_overlay.b, theme_cfg.menu_overlay.a);
+    SDL_RenderFillRect(renderer, NULL);
+
+    int bar_w = std::min(win_w - 120, 480);
+    int bar_h = 22;
+    int bar_x = win_w/2 - bar_w/2;
+    int text_y = win_h/2 - 40;
+    int bar_y = win_h/2;
+
+    if (f24) {
+        SDL_Surface* s = ttf_render_text_blended(f24, message, theme_cfg.menu_item_selected);
+        if (s) {
+            SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+            if (t) { SDL_Rect r = {win_w/2 - s->w/2, text_y, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+            SDL_FreeSurface(s);
+        }
+    }
+
+    SDL_Rect border = {bar_x, bar_y, bar_w, bar_h};
+    SDL_SetRenderDrawColor(renderer, theme_cfg.menu_box_border.r, theme_cfg.menu_box_border.g, theme_cfg.menu_box_border.b, 255);
+    SDL_RenderDrawRect(renderer, &border);
+
+    std::string label;
+    if (total > 0) {
+        int pct = (int)((downloaded * 100) / total);
+        if (pct > 100) pct = 100;
+        if (pct < 0) pct = 0;
+        int fill_w = (bar_w - 4) * pct / 100;
+        SDL_Rect fill = {bar_x + 2, bar_y + 2, fill_w, bar_h - 4};
+        SDL_SetRenderDrawColor(renderer, theme_cfg.menu_item_selected.r, theme_cfg.menu_item_selected.g, theme_cfg.menu_item_selected.b, 255);
+        SDL_RenderFillRect(renderer, &fill);
+        char buf[16]; snprintf(buf, sizeof(buf), "%d%%", pct);
+        label = buf;
+    } else if (downloaded > 0) {
+        char buf[32]; snprintf(buf, sizeof(buf), "%.1f MB", downloaded / 1e6);
+        label = buf;
+    }
+
+    if (f18 && !label.empty()) {
+        SDL_Surface* s = ttf_render_text_blended(f18, label, theme_cfg.menu_hint);
+        if (s) {
+            SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+            if (t) { SDL_Rect r = {win_w/2 - s->w/2, bar_y + bar_h + 8, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+            SDL_FreeSurface(s);
+        }
+    }
+
+    SDL_RenderPresent(renderer);
+    SDL_PumpEvents();
+}
+
+// Screen for the "applying" phase (extracting/moving files after the
+// download finished) — no bar here, since progress within this phase is a
+// file count rather than bytes, and showing the download bar frozen at
+// whatever it last read would look identical to "stuck". Just the message
+// plus, once the file list has been counted, a "moved / total" readout.
+static void show_applying_screen(SDL_Renderer* renderer, const std::string& font_path,
+                                  SDL_Texture* bg_tex, long long moved, long long total_files) {
+    if (font_cache.find(24) == font_cache.end()) font_cache[24] = ttf_open_font(font_path, 24);
+    if (font_cache.find(18) == font_cache.end()) font_cache[18] = ttf_open_font(font_path, 18);
+    TTF_Font* f24 = font_cache.count(24) ? font_cache[24] : nullptr;
+    TTF_Font* f18 = font_cache.count(18) ? font_cache[18] : nullptr;
+
+    int win_w = 0, win_h = 0;
+    SDL_RenderGetLogicalSize(renderer, &win_w, &win_h);
+    if (win_w <= 0 || win_h <= 0) SDL_GetRendererOutputSize(renderer, &win_w, &win_h);
+
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    if (bg_tex) { SDL_Rect bgr = {0, 0, win_w, win_h}; SDL_RenderCopy(renderer, bg_tex, NULL, &bgr); }
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, theme_cfg.menu_overlay.r, theme_cfg.menu_overlay.g, theme_cfg.menu_overlay.b, theme_cfg.menu_overlay.a);
+    SDL_RenderFillRect(renderer, NULL);
+
+    const std::string message = "Applying update, please wait — this can take a few minutes...";
+    if (f24) {
+        SDL_Surface* s = ttf_render_text_blended(f24, message, theme_cfg.menu_item_selected);
+        if (s) {
+            SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+            if (t) { SDL_Rect r = {win_w/2 - s->w/2, win_h/2 - 20, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+            SDL_FreeSurface(s);
+        }
+    }
+
+    // total_files > 0 once the move loop starts (real count, from the
+    // extracted file list). Before that — still unzipping — total is 0 and
+    // moved instead counts unzip's own "inflating: ..." lines, so there's no
+    // known denominator yet; show what we do know rather than nothing.
+    std::string sub;
+    if (total_files > 0) {
+        char buf[48]; snprintf(buf, sizeof(buf), "%lld / %lld files", moved, total_files);
+        sub = buf;
+    } else if (moved > 0) {
+        char buf[48]; snprintf(buf, sizeof(buf), "Extracting... %lld files so far", moved);
+        sub = buf;
+    }
+    if (f18 && !sub.empty()) {
+        SDL_Surface* s = ttf_render_text_blended(f18, sub, theme_cfg.menu_hint);
+        if (s) {
+            SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+            if (t) { SDL_Rect r = {win_w/2 - s->w/2, win_h/2 + 24, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+            SDL_FreeSurface(s);
+        }
+    }
+
+    SDL_RenderPresent(renderer);
+    SDL_PumpEvents();
+}
+
+// Runs a shell script in the background (fork+exec) and returns its pid, or
+// -1 on failure. Caller polls with waitpid(pid, &status, WNOHANG).
+static pid_t spawn_background_sh(const char* script_path) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        // execlp (not execl) to resolve "sh" via PATH, same as system("sh ...")
+        // does elsewhere in this file — no assumption that /bin/sh exists.
+        execlp("sh", "sh", script_path, (char*)nullptr);
+        _exit(127); // exec failed
+    }
+    return pid;
+}
+
+// Runs download_updates.sh in the background while redrawing a progress
+// screen once per frame from /tmp/update/progress (written by the script's
+// curl_with_progress helper), instead of blocking on system() with a static
+// "please wait" screen. Returns true only if the script exited with status 0.
+static bool run_update_apply_script_with_progress(SDL_Renderer* renderer, const std::string& font_path, SDL_Texture* bg_tex) {
+#ifdef NATIVE_BASE_PATH
+    return false;
+#else
+    ::remove("/tmp/update/progress");
+    ::remove("/tmp/update/phase");
+    ::remove("/tmp/update/apply_progress");
+    pid_t pid = spawn_background_sh("/mnt/sdcard/bin/download_updates.sh");
+    if (pid <= 0) return false;
+
+    long long downloaded = 0, total = 0;
+    long long files_moved = 0, files_total = 0;
+    int status = 0;
+    for (;;) {
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_JOYDEVICEADDED) SDL_JoystickOpen(ev.jdevice.which);
+        }
+        if (update_is_applying()) {
+            read_apply_progress(files_moved, files_total);
+            show_applying_screen(renderer, font_path, bg_tex, files_moved, files_total);
+        } else {
+            read_update_progress(downloaded, total);
+            show_progress_screen(renderer, font_path, bg_tex, "Downloading update, please wait...", downloaded, total);
+        }
+
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r == pid) break;
+        SDL_Delay(200);
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+#endif
+}
+
+// Runs the existing, unmodified 2-gamepad patch script.
+static bool run_two_gamepad_patch_script() {
+#ifdef NATIVE_BASE_PATH
+    return false;
+#else
+    int rc = system("sh /mnt/sdcard/bin/download_two_gamepad2_patch.sh");
+    return rc == 0;
+#endif
+}
+
+// Generic modal message/confirm box, styled like the rest of the menu overlays
+// (dimmed carousel background + theme-colored panel). has_cancel=true shows
+// [A] ok_label / [B] cancel_label and returns true only if A (Yes) was pressed;
+// has_cancel=false shows a single dismiss hint and always returns false.
+static bool show_message_dialog(SDL_Renderer* renderer, const std::string& font_path,
+                                 SDL_Texture* bg_tex,
+                                 const std::vector<std::string>& lines,
+                                 bool has_cancel,
+                                 const char* ok_label = "OK",
+                                 const char* cancel_label = "Cancel") {
+    if (font_cache.find(20) == font_cache.end()) font_cache[20] = ttf_open_font(font_path, 20);
+    if (font_cache.find(24) == font_cache.end()) font_cache[24] = ttf_open_font(font_path, 24);
+    TTF_Font* f20 = font_cache.count(20) ? font_cache[20] : nullptr;
+    TTF_Font* f24 = font_cache.count(24) ? font_cache[24] : nullptr;
+    TTF_Font* fT  = f24 ? f24 : f20;
+    if (!fT && !f20) return false;
+
+    bool result = false;
+    bool open = true;
+    SDL_Event ev;
+    Uint32 next_input = SDL_GetTicks() + 250;
+
+    while (open) {
+        while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_QUIT) { open = false; break; }
+            if (ev.type == SDL_JOYDEVICEADDED) SDL_JoystickOpen(ev.jdevice.which);
+#ifdef NATIVE_BASE_PATH
+            if (ev.type == SDL_KEYDOWN) {
+                int vbtn = -1;
+                switch (ev.key.keysym.sym) {
+                    case SDLK_a: case SDLK_RETURN: vbtn = 1; break;
+                    case SDLK_b: case SDLK_ESCAPE: vbtn = 3; break;
+                    default: break;
+                }
+                if (vbtn >= 0 && SDL_GetTicks() >= next_input) {
+                    SDL_Event fake; SDL_memset(&fake, 0, sizeof(fake));
+                    fake.type = SDL_JOYBUTTONDOWN; fake.jbutton.button = (Uint8)vbtn;
+                    SDL_PushEvent(&fake);
+                }
+            }
+#endif
+            if (ev.type == SDL_JOYBUTTONDOWN) {
+                if (SDL_GetTicks() < next_input) continue;
+                int btn = ev.jbutton.button;
+                if (btn == 1) { result = true; open = false; play_sound(s_enter); }
+                else if (btn == 3 || btn == 6) { result = false; open = false; play_sound(s_back); }
+            }
+        }
+
+        int win_w = 0, win_h = 0;
+        SDL_RenderGetLogicalSize(renderer, &win_w, &win_h);
+        if (win_w <= 0 || win_h <= 0) SDL_GetRendererOutputSize(renderer, &win_w, &win_h);
+
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        SDL_RenderClear(renderer);
+        if (bg_tex) { SDL_Rect bgr = {0, 0, win_w, win_h}; SDL_RenderCopy(renderer, bg_tex, NULL, &bgr); }
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer, theme_cfg.menu_overlay.r, theme_cfg.menu_overlay.g, theme_cfg.menu_overlay.b, theme_cfg.menu_overlay.a);
+        SDL_RenderFillRect(renderer, NULL);
+
+        int row_h = 34;
+        int bw = std::min(win_w - 60, 620);
+        int bh = 70 + (int)lines.size() * row_h + 40;
+        int bx = (win_w - bw) / 2, by = (win_h - bh) / 2;
+        SDL_Rect box = {bx, by, bw, bh};
+        SDL_SetRenderDrawColor(renderer, theme_cfg.menu_box_bg.r, theme_cfg.menu_box_bg.g, theme_cfg.menu_box_bg.b, theme_cfg.menu_box_bg.a);
+        SDL_RenderFillRect(renderer, &box);
+        SDL_SetRenderDrawColor(renderer, theme_cfg.menu_box_border.r, theme_cfg.menu_box_border.g, theme_cfg.menu_box_border.b, theme_cfg.menu_box_border.a);
+        SDL_RenderDrawRect(renderer, &box);
+
+        int ty = by + 24;
+        for (const auto& line : lines) {
+            if (line.empty()) { ty += row_h / 2; continue; }
+            if (fT) {
+                SDL_Surface* s = ttf_render_text_blended(fT, line, theme_cfg.menu_item_selected);
+                if (s) {
+                    SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+                    if (t) { SDL_Rect r = {bx + bw/2 - s->w/2, ty, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+                    ty += s->h + 4;
+                    SDL_FreeSurface(s);
+                } else ty += row_h;
+            }
+        }
+
+        std::string hint = has_cancel ? (std::string("[A] ") + ok_label + "   [B] " + cancel_label)
+                                       : (std::string("[A]/[B] ") + ok_label);
+        if (f20) {
+            SDL_Surface* s = ttf_render_text_blended(f20, hint, theme_cfg.menu_hint);
+            if (s) {
+                SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+                if (t) { SDL_Rect r = {bx + bw/2 - s->w/2, by + bh - s->h - 16, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+                SDL_FreeSurface(s);
+            }
+        }
+
+        SDL_RenderPresent(renderer);
+        SDL_Delay(16);
+    }
+    return result;
+}
+
+// Static "please wait" screen shown once, right before a blocking system() call
+// that may take a while (network download + unzip). No spinner: the update
+// scripts already give their own LED feedback while they run.
+static void show_wait_screen(SDL_Renderer* renderer, const std::string& font_path,
+                              SDL_Texture* bg_tex, const std::string& message) {
+    if (font_cache.find(24) == font_cache.end()) font_cache[24] = ttf_open_font(font_path, 24);
+    TTF_Font* f24 = font_cache.count(24) ? font_cache[24] : nullptr;
+
+    int win_w = 0, win_h = 0;
+    SDL_RenderGetLogicalSize(renderer, &win_w, &win_h);
+    if (win_w <= 0 || win_h <= 0) SDL_GetRendererOutputSize(renderer, &win_w, &win_h);
+
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    if (bg_tex) { SDL_Rect bgr = {0, 0, win_w, win_h}; SDL_RenderCopy(renderer, bg_tex, NULL, &bgr); }
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, theme_cfg.menu_overlay.r, theme_cfg.menu_overlay.g, theme_cfg.menu_overlay.b, theme_cfg.menu_overlay.a);
+    SDL_RenderFillRect(renderer, NULL);
+
+    if (f24) {
+        SDL_Surface* s = ttf_render_text_blended(f24, message, theme_cfg.menu_item_selected);
+        if (s) {
+            SDL_Texture* t = SDL_CreateTextureFromSurface(renderer, s);
+            if (t) { SDL_Rect r = {win_w/2 - s->w/2, win_h/2 - s->h/2, s->w, s->h}; SDL_RenderCopy(renderer, t, NULL, &r); SDL_DestroyTexture(t); }
+            SDL_FreeSurface(s);
+        }
+    }
+    SDL_RenderPresent(renderer);
+    SDL_PumpEvents(); // flush the queue so pending presses don't leak into the next screen
+}
+
+// Full "check -> confirm -> apply -> result" flow. Used both at launcher startup
+// (silent_if_none=true: says nothing when there's no update or the check fails,
+// so boot isn't interrupted on flaky/no WiFi) and from TOOLS > Check for Updates
+// (silent_if_none=false: always reports the outcome, since the user asked).
+void run_update_flow(SDL_Renderer* renderer, const std::string& font_path, SDL_Texture* bg_tex, bool silent_if_none) {
+    UpdateCheckResult chk = check_for_update();
+
+    if (chk.kind == UpdateKind::ERR) {
+        if (!silent_if_none)
+            show_message_dialog(renderer, font_path, bg_tex,
+                {"Could not check for updates.", "Please check your WiFi connection and try again."},
+                false, "OK");
+        return;
+    }
+    if (chk.kind == UpdateKind::NONE) {
+        if (!silent_if_none)
+            show_message_dialog(renderer, font_path, bg_tex,
+                {"You are running the latest version.", "SD Card version " + chk.local_version},
+                false, "OK");
+        return;
+    }
+
+    // A full upgrade downloads and unpacks a much larger image than a patch;
+    // refuse up front rather than risk a half-applied upgrade from running
+    // out of space mid-way (download_updates.sh checks this again on its
+    // own, since it can also be triggered outside the frontend).
+    if (chk.kind == UpdateKind::FULL) {
+        double free_gb = free_space_gb("/sdcard");
+        if (free_gb >= 0.0 && free_gb < 2.0) {
+            char buf[64]; snprintf(buf, sizeof(buf), "%.2f GB available.", free_gb);
+            show_message_dialog(renderer, font_path, bg_tex,
+                {"Not enough free space for a full upgrade.",
+                 "At least 2 GB free is required — " + std::string(buf),
+                 "Please free up some space and try again."},
+                false, "OK");
+            return;
+        }
+    }
+
+    // A power loss mid-write while applying an update can corrupt files on
+    // the SD card, so refuse on a low, non-charging battery rather than let
+    // someone start something they can't safely see through to the end.
+    int batt_pct = read_battery_percent();
+    if (batt_pct >= 0 && batt_pct < 50 && !battery_is_charging()) {
+        char buf[16]; snprintf(buf, sizeof(buf), "%d%%", batt_pct);
+        show_message_dialog(renderer, font_path, bg_tex,
+            {"Battery too low to safely update (" + std::string(buf) + ").",
+             "Please charge to at least 50%, or plug in power,",
+             "and try again."},
+            false, "OK");
+        return;
+    }
+
+    std::string kind_label = (chk.kind == UpdateKind::FULL) ? "full upgrade" : "update";
+    bool go = show_message_dialog(renderer, font_path, bg_tex,
+        {"A new version is available: " + chk.remote_version,
+         "You are currently on: " + chk.local_version,
+         "",
+         "Download and install this " + kind_label + " now?",
+         "",
+         "Do not turn off the device during the update."},
+        true, "Yes", "No");
+    if (!go) return;
+
+    bool ok = run_update_apply_script_with_progress(renderer, font_path, bg_tex);
+
+    if (ok) {
+        show_message_dialog(renderer, font_path, bg_tex,
+            {"Update complete!", "Please restart the launcher."}, false, "OK");
+        SDL_Quit();
+        exit(0);
+    } else {
+        show_message_dialog(renderer, font_path, bg_tex,
+            {"Update failed.", "Please check your WiFi connection and try again."}, false, "OK");
+    }
+}
+
+// TOOLS > Download 2-Gamepad Patch: always confirms first (it overwrites device
+// files). Unlike a full/patch update, this doesn't touch launcher.sh or the
+// launcher binary, so there's no need to quit/restart afterward.
+void run_two_gamepad_patch_flow(SDL_Renderer* renderer, const std::string& font_path, SDL_Texture* bg_tex) {
+    bool go = show_message_dialog(renderer, font_path, bg_tex,
+        {"Download and install the 2-gamepad patch?"}, true, "Yes", "No");
+    if (!go) return;
+
+    show_wait_screen(renderer, font_path, bg_tex, "Downloading patch, please wait...");
+    bool ok = run_two_gamepad_patch_script();
+
+    if (ok) {
+        show_message_dialog(renderer, font_path, bg_tex,
+            {"Patch installed!"}, false, "OK");
+    } else {
+        show_message_dialog(renderer, font_path, bg_tex,
+            {"Patch installation failed.", "Please check your WiFi connection and try again."}, false, "OK");
+    }
+}
+
 
 #ifndef CROSS_PLATFORM
 // Thread che fa lampeggiare il LED di alimentazione (ON/OFF ogni 300ms)
@@ -4180,11 +5535,6 @@ int main(int, char* argv[]) {
 #endif
     IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
     load_extensions_cfg(base_p + "extensions_cfg.txt");
-    if (startup_volume >= 0) {
-        char cmd[64];
-        snprintf(cmd, sizeof(cmd), "amixer sset Master %d%% -q 2>/dev/null", startup_volume);
-        system(cmd);
-    }
     if (startup_brightness >= 10) {
         apply_screen_brightness(startup_brightness);
     }
@@ -4203,7 +5553,7 @@ int main(int, char* argv[]) {
         std::vector<MenuItem> col_items;
         std::set<std::string> seen_sys;
         for (const auto& gid : gids) {
-            col_items.push_back({gid.substr(gid.rfind('/') + 1), false});
+            { MenuItem m(gid.substr(gid.rfind('/') + 1), false); m.game_id = gid; col_items.push_back(m); }
             size_t sl = gid.find('/');
             if (sl != std::string::npos) {
                 std::string sys = gid.substr(0, sl);
@@ -4278,7 +5628,9 @@ int main(int, char* argv[]) {
     TTF_Font* font_16 = nullptr;
     TTF_Font* font_20 = nullptr;
     TTF_Font* font_24 = nullptr;
-    
+    // Altezza reale in pixel del font large (varia per famiglia/stile, NON uguale a font_large pt)
+    int font_large_h = theme_cfg.font_large;
+
     if (ttf_init()) {
         ttf_available = true;
         font_16 = ttf_open_font(font_path, theme_cfg.font_small);
@@ -4293,6 +5645,7 @@ int main(int, char* argv[]) {
             font_cache[theme_cfg.font_small]  = font_16;
             font_cache[theme_cfg.font_medium] = font_20;
             font_cache[theme_cfg.font_large]  = font_24;
+            if (pTTF_FontHeight && font_24) font_large_h = pTTF_FontHeight(font_24);
         }
     } else {
         std::cerr << "Warning: SDL2_ttf not available. Using bitmap font fallback.\n";
@@ -4383,6 +5736,23 @@ int main(int, char* argv[]) {
         wifi_icons[1] = load_theme_image(renderer, "Wifi_logo1.png");
         wifi_icons[2] = load_theme_image(renderer, "Wifi_logo2.png");
         wifi_icons[3] = load_theme_image(renderer, "Wifi_logo3.png");
+        // Reload fonts per il nuovo tema (font_path può cambiare se il tema ha un suo font)
+        for (auto& fc : font_cache) ttf_close_font(fc.second);
+        font_cache.clear();
+        font_path = find_font_path();
+        if (ttf_available) {
+            font_16 = ttf_open_font(font_path, theme_cfg.font_small);
+            font_20 = ttf_open_font(font_path, theme_cfg.font_medium);
+            font_24 = ttf_open_font(font_path, theme_cfg.font_large);
+            if (font_16 && font_20 && font_24) {
+                font_cache[theme_cfg.font_small]  = font_16;
+                font_cache[theme_cfg.font_medium] = font_20;
+                font_cache[theme_cfg.font_large]  = font_24;
+                if (pTTF_FontHeight && font_24) font_large_h = pTTF_FontHeight(font_24);
+            } else {
+                std::cerr << "Warning: TTF font reload failed for new theme. Keeping previous fonts.\n";
+            }
+        }
         // Rescan music for new theme and restart if enabled
         music_tracks = scan_music_tracks(current_theme);
         music_track_index = resolve_music_track_index(music_tracks, load_music_track_for_theme(current_theme));
@@ -4472,11 +5842,10 @@ int main(int, char* argv[]) {
     std::vector<CarouselState> carousel_stack;
     const SuperFolderNode* current_sf_node = nullptr; // nullptr = main carousel
 
-    // Build main carousel: SuperFolders first, then unassigned systems, FAVORITES at front
+    // Build main carousel: SuperFolders, sistemi, collection nell'ordine corretto.
+    // In modalità custom (system_sort_order==2) tutti e tre seguono systems_custom_order.
     auto build_main_carousel = [&]() -> std::vector<MenuItem> {
         std::vector<MenuItem> result;
-        for (const auto& sf : superfolder_roots)
-            result.push_back({sf.name, true, true});
         std::vector<MenuItem> all_sys = scan_directory(roms_base, true);
         std::vector<MenuItem> unassigned;
         for (auto& it : all_sys) {
@@ -4495,30 +5864,57 @@ int main(int, char* argv[]) {
             }), unassigned.end());
         }
         if (system_sort_order == 2 && !systems_custom_order.empty()) {
-            // Custom: ordina secondo systems_custom_order, i non trovati vanno in fondo
-            std::vector<MenuItem> ordered, rest;
-            for (const auto& s : systems_custom_order)
+            // Custom: SuperFolders, sistemi E collection seguono l'ordine in systems_custom_order.
+            // Gli elementi non presenti nel file vanno in fondo (SF → sistemi → collection).
+            std::vector<MenuItem> ordered;
+            std::set<std::string> placed_sf, placed_sys, placed_col;
+
+            for (const auto& s : systems_custom_order) {
+                // È un SuperFolder?
+                for (const auto& sf : superfolder_roots)
+                    if (sf.name == s) { ordered.push_back({sf.name, true, true}); placed_sf.insert(s); break; }
+                if (placed_sf.count(s)) continue;
+                // È un sistema?
                 for (const auto& it : unassigned)
-                    if (it.name == s) { ordered.push_back(it); break; }
-            for (const auto& it : unassigned) {
-                bool found = false;
-                for (const auto& o : ordered) if (o.name == it.name) { found = true; break; }
-                if (!found) rest.push_back(it);
+                    if (it.name == s) { ordered.push_back(it); placed_sys.insert(s); break; }
+                if (placed_sys.count(s)) continue;
+                // È una collection?
+                if (collection_games.count(s) && !collections_in_superfolders.count(s)) {
+                    if (show_empty_systems || !collection_games.at(s).empty()) {
+                        ordered.push_back(MenuItem{s, true, false, true});
+                        placed_col.insert(s);
+                    }
+                }
             }
-            unassigned = ordered;
-            unassigned.insert(unassigned.end(), rest.begin(), rest.end());
+            // SuperFolders non presenti nel file di ordine
+            for (const auto& sf : superfolder_roots)
+                if (!placed_sf.count(sf.name)) ordered.push_back({sf.name, true, true});
+            // Sistemi non presenti nel file di ordine
+            for (const auto& it : unassigned)
+                if (!placed_sys.count(it.name)) ordered.push_back(it);
+            // Collection non presenti nel file di ordine
+            for (const auto& cname : collection_names) {
+                if (collections_in_superfolders.count(cname)) continue;
+                if (!show_empty_systems && collection_games.at(cname).empty()) continue;
+                if (!placed_col.count(cname))
+                    ordered.push_back(MenuItem{cname, true, false, true});
+            }
+            result.insert(result.end(), ordered.begin(), ordered.end());
         } else {
+            // Ordine non-custom: SuperFolders prima, poi sistemi ordinati, poi collection
+            for (const auto& sf : superfolder_roots)
+                result.push_back({sf.name, true, true});
             std::sort(unassigned.begin(), unassigned.end(), compare_systems);
+            result.insert(result.end(), unassigned.begin(), unassigned.end());
+            for (const auto& cname : collection_names) {
+                if (collections_in_superfolders.count(cname)) continue;
+                if (!show_empty_systems && collection_games.at(cname).empty()) continue;
+                result.push_back(MenuItem{cname, true, false, true});
+            }
         }
-        result.insert(result.end(), unassigned.begin(), unassigned.end());
         if (!result.empty())
             result.insert(result.begin(), MenuItem{"FAVORITES", true, false});
         result.push_back(MenuItem{"LAST PLAYED", true, false});
-        for (const auto& cname : collection_names) {
-            if (collections_in_superfolders.count(cname)) continue;
-            if (!show_empty_systems && collection_games.at(cname).empty()) continue;
-            result.push_back(MenuItem{cname, true, false, true});
-        }
         return result;
     };
 
@@ -4533,10 +5929,15 @@ int main(int, char* argv[]) {
     SDL_Event event;
     // Lista sistemi per navigazione sinistra/destra nella lista giochi
     std::vector<std::string> system_list;
+    std::vector<std::string> sf_collection_list; // collection nel SF corrente (svuotato fuori dai SF)
     auto rebuild_system_list = [&]() {
         system_list.clear();
+        sf_collection_list.clear();
         for (const auto& it : items)
-            if (it.name != "FAVORITES" && it.name != "LAST PLAYED" && !it.is_superfolder && !it.is_collection) system_list.push_back(it.name);
+            if (it.name != "FAVORITES" && it.name != "LAST PLAYED" && !it.is_superfolder) {
+                if (!it.is_collection) system_list.push_back(it.name);
+                else                   sf_collection_list.push_back(it.name);
+            }
     };
     rebuild_system_list();
 
@@ -4596,10 +5997,81 @@ int main(int, char* argv[]) {
     if (music_enabled && !music_tracks.empty())
         start_music(music_tracks[music_track_index]);
 
+    bool startup_vol_pending = (startup_volume >= 0);
+
+    // Check for GSG software updates at startup. Silent when there's no update
+    // available or the check itself fails (e.g. no WiFi yet) — boot must never
+    // be interrupted by a connectivity error the user didn't ask about.
+    run_update_flow(renderer, font_path, bg_cur, true);
+
     while (running) {
         Uint32 tick = SDL_GetTicks();
         float dt = (tick - last_tick) / 1000.0f;
         last_tick = tick;
+
+        // Applica startup_volume al PRIMO frame: a questo punto tutta l'inizializzazione
+        // SDL/ALSA è completata, nessun restore ALSA può sovrascrivere il nostro comando.
+#ifndef CROSS_PLATFORM
+        if (startup_vol_pending) {
+            startup_vol_pending = false;
+            char svcmd[64];
+            snprintf(svcmd, sizeof(svcmd), "amixer sset Master %d%% -q 2>/dev/null", startup_volume);
+            system(svcmd);
+            // Sincronizza anche il display vol_level
+            vol_level = (startup_volume + 5) / 10;
+            if (vol_level > 10) vol_level = 10;
+            if (vol_level < 0)  vol_level = 0;
+        }
+#endif
+
+        // Naviga tra sistemi E collection dentro un SuperFolder (dir: +1=avanti, -1=indietro).
+        // Deve stare nel loop per catturare 'tick' e le altre variabili locali.
+        auto navigate_sf = [&](int dir) {
+            int total_sys = (int)system_list.size();
+            int total_col = (int)sf_collection_list.size();
+            int total_nav = total_sys + total_col;
+            if (total_nav == 0) return;
+            int nav_idx = 0;
+            if (in_collection) {
+                for (int i = 0; i < total_col; i++)
+                    if (sf_collection_list[i] == current_collection_name) { nav_idx = total_sys + i; break; }
+            } else {
+                for (int i = 0; i < total_sys; i++)
+                    if (system_list[i] == current_sys) { nav_idx = i; break; }
+            }
+            nav_idx = (nav_idx + dir + total_nav) % total_nav;
+            stop_video_preview();
+            if (video_texture)  { SDL_DestroyTexture(video_texture);  video_texture  = nullptr; }
+            if (box_art)        { SDL_DestroyTexture(box_art);        box_art        = nullptr; }
+            if (screenshot_tex) { SDL_DestroyTexture(screenshot_tex); screenshot_tex = nullptr; }
+            if (marquee_tex)    { SDL_DestroyTexture(marquee_tex);    marquee_tex    = nullptr; }
+            { for (auto& kv : box3d_cache) SDL_DestroyTexture(kv.second); box3d_cache.clear(); }
+            if (nav_idx < total_sys) {
+                in_collection = false; in_favorites = false; in_lastplayed = false;
+                current_collection_name = "";
+                current_sys = system_list[nav_idx];
+                current_rel = "/" + current_sys;
+                items = scan_directory(roms_base + current_rel, false, current_sys);
+                load_gamelist(roms_base + "/" + current_sys);
+                sf_reset(); gamelist_base_items = items;
+                apply_sort_filter(items, current_gamelist, current_sys, current_rel);
+                last_main_sel = nav_idx;
+            } else {
+                int ci = nav_idx - total_sys;
+                in_collection = true; in_favorites = false; in_lastplayed = false;
+                current_collection_name = sf_collection_list[ci];
+                current_sys = ""; current_rel = "";
+                items = build_collection_items(current_collection_name);
+                current_gamelist.clear();
+                sf_reset(); gamelist_base_items = items;
+                build_sf_aux_for_col(current_collection_name);
+                apply_sort_filter(items, sf_aux_gl, "", "");
+                last_main_sel = nav_idx;
+            }
+            selected = 0; scroll = 0;
+            needs_art_update = true; selection_timer = tick;
+            play_sound(s_click);
+        };
 
         // Auto-advance: quando una traccia finisce, avvia la successiva
         if (music_autoadvance && music_track_ended.exchange(false) && music_enabled && !music_tracks.empty()) {
@@ -4632,17 +6104,10 @@ int main(int, char* argv[]) {
         if (in_games && !items.empty() && selected < (int)items.size()) {
             std::string dn = items[selected].name;
             if (!items[selected].is_dir) {
-                // Per i favoriti usa il nome dal game_id (con estensione ROM), come nel blocco
-                // di caricamento art. Evita troncamenti errati per nomi con punto (es. "Dr. Mario").
-                if (in_favorites && selected < (int)favorites_list.size()) {
-                    const std::string& gid = favorites_list[selected].game_id;
-                    size_t sl = gid.find_last_of('/');
-                    dn = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                } else if (in_collection && collection_games.count(current_collection_name)) {
-                    const auto& gids = collection_games.at(current_collection_name);
-                    if (selected < (int)gids.size()) { size_t sl = gids[selected].rfind('/'); dn = (sl != std::string::npos) ? gids[selected].substr(sl + 1) : gids[selected]; }
-                } else if (in_lastplayed && selected < (int)lastplayed_list.size()) {
-                    const std::string& gid = lastplayed_list[selected].game_id;
+                // Per i favoriti/lp/collection usa il nome dal game_id (con estensione ROM).
+                // items[selected].game_id viaggia con l'item durante sort/filter.
+                if (!items[selected].game_id.empty()) {
+                    const std::string& gid = items[selected].game_id;
                     size_t sl = gid.find_last_of('/');
                     dn = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
                 }
@@ -4650,24 +6115,19 @@ int main(int, char* argv[]) {
                 if (dot != std::string::npos) dn = dn.substr(0, dot);
                 if (show_gamelist_names) {
                     const GameInfo* gi_m = nullptr;
-                    if (in_favorites && selected < (int)favorites_list.size())
-                        gi_m = find_game_info_for_system(favorites_list[selected].system, dn);
-                    else if (in_lastplayed && selected < (int)lastplayed_list.size())
-                        gi_m = find_game_info_for_system(lastplayed_list[selected].system, dn);
-                    else if (in_collection && collection_games.count(current_collection_name)) {
-                        const auto& gids = collection_games.at(current_collection_name);
-                        if (selected < (int)gids.size()) { std::string col_sys, col_fn; split_game_id(gids[selected], col_sys, col_fn); size_t d = col_fn.rfind('.'); if (d != std::string::npos) col_fn = col_fn.substr(0, d); gi_m = find_game_info_for_system(col_sys, col_fn); }
+                    if (!items[selected].game_id.empty()) {
+                        std::string col_sys, col_fn;
+                        split_game_id(items[selected].game_id, col_sys, col_fn);
+                        size_t d = col_fn.rfind('.'); if (d != std::string::npos) col_fn = col_fn.substr(0, d);
+                        gi_m = find_game_info_for_system(col_sys, col_fn);
                     } else
                         gi_m = find_game_info(dn);
                     if (gi_m && !gi_m->name.empty()) dn = gi_m->name;
                 }
             }
-            if (in_favorites && selected < (int)favorites_list.size()) {
-                std::string sys = favorites_list[selected].system;
-                for (auto& c : sys) c = toupper(c);
-                dn = "[" + sys + "] " + dn;
-            } else if (in_lastplayed && selected < (int)lastplayed_list.size()) {
-                std::string sys = lastplayed_list[selected].system;
+            if ((in_favorites || in_lastplayed) && !items[selected].game_id.empty()) {
+                std::string sys, fn_;
+                split_game_id(items[selected].game_id, sys, fn_);
                 for (auto& c : sys) c = toupper(c);
                 dn = "[" + sys + "] " + dn;
             }
@@ -4828,33 +6288,17 @@ int main(int, char* argv[]) {
             if (marquee_tex) { SDL_DestroyTexture(marquee_tex); marquee_tex = nullptr; }
             if (!items.empty() && !items[selected].is_dir) {
                 std::string g_name = items[selected].name;
-                if (in_favorites && selected < (int)favorites_list.size()) {
-                    const std::string& gid = favorites_list[selected].game_id;
+                if (!items[selected].game_id.empty()) {
+                    const std::string& gid = items[selected].game_id;
                     size_t sl = gid.find_last_of('/');
                     g_name = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                } else if (in_lastplayed && selected < (int)lastplayed_list.size()) {
-                    const std::string& gid = lastplayed_list[selected].game_id;
-                    size_t sl = gid.find_last_of('/');
-                    g_name = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                } else if (in_collection && collection_games.count(current_collection_name)) {
-                    const auto& gids = collection_games.at(current_collection_name);
-                    if (selected < (int)gids.size()) { size_t sl = gids[selected].rfind('/'); g_name = (sl != std::string::npos) ? gids[selected].substr(sl + 1) : gids[selected]; }
                 }
                 size_t dot = g_name.find_last_of("."); if (dot != std::string::npos) g_name = g_name.substr(0, dot);
                 std::string sys_to_search = current_sys;
                 std::string media_rel = current_rel;
-                if (in_favorites && selected < (int)favorites_list.size()) {
-                    sys_to_search = favorites_list[selected].system;
-                    media_rel = game_id_to_cur_rel(favorites_list[selected].game_id);
-                } else if (in_lastplayed && selected < (int)lastplayed_list.size()) {
-                    sys_to_search = lastplayed_list[selected].system;
-                    media_rel = game_id_to_cur_rel(lastplayed_list[selected].game_id);
-                } else if (in_collection && collection_games.count(current_collection_name)) {
-                    const auto& gids = collection_games.at(current_collection_name);
-                    if (selected < (int)gids.size()) {
-                        std::string tmp; split_game_id(gids[selected], sys_to_search, tmp);
-                        media_rel = game_id_to_cur_rel(gids[selected]);
-                    }
+                if (!items[selected].game_id.empty()) {
+                    std::string tmp; split_game_id(items[selected].game_id, sys_to_search, tmp);
+                    media_rel = game_id_to_cur_rel(items[selected].game_id);
                 }
                 {
                     std::string found_p = find_game_media(roms_base, sys_to_search, media_rel, "boxart", g_name);
@@ -4885,35 +6329,19 @@ int main(int, char* argv[]) {
 
             if (!items.empty() && !items[selected].is_dir) {
                 std::string g_name = items[selected].name;
-                // Per i favoriti usa il nome reale dal game_id, non il display_name
-                if (in_favorites && selected < (int)favorites_list.size()) {
-                    const std::string& gid = favorites_list[selected].game_id;
+                // Per i favoriti/lp/collection usa il nome reale dal game_id
+                if (!items[selected].game_id.empty()) {
+                    const std::string& gid = items[selected].game_id;
                     size_t sl = gid.find_last_of('/');
                     g_name = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                } else if (in_lastplayed && selected < (int)lastplayed_list.size()) {
-                    const std::string& gid = lastplayed_list[selected].game_id;
-                    size_t sl = gid.find_last_of('/');
-                    g_name = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                } else if (in_collection && collection_games.count(current_collection_name)) {
-                    const auto& gids = collection_games.at(current_collection_name);
-                    if (selected < (int)gids.size()) { size_t sl = gids[selected].rfind('/'); g_name = (sl != std::string::npos) ? gids[selected].substr(sl + 1) : gids[selected]; }
                 }
                 size_t dot = g_name.find_last_of("."); if (dot != std::string::npos) g_name = g_name.substr(0, dot);
 
                 std::string sys_to_search = current_sys;
                 std::string media_rel = current_rel;
-                if (in_favorites && selected < (int)favorites_list.size()) {
-                    sys_to_search = favorites_list[selected].system;
-                    media_rel = game_id_to_cur_rel(favorites_list[selected].game_id);
-                } else if (in_lastplayed && selected < (int)lastplayed_list.size()) {
-                    sys_to_search = lastplayed_list[selected].system;
-                    media_rel = game_id_to_cur_rel(lastplayed_list[selected].game_id);
-                } else if (in_collection && collection_games.count(current_collection_name)) {
-                    const auto& gids = collection_games.at(current_collection_name);
-                    if (selected < (int)gids.size()) {
-                        std::string tmp; split_game_id(gids[selected], sys_to_search, tmp);
-                        media_rel = game_id_to_cur_rel(gids[selected]);
-                    }
+                if (!items[selected].game_id.empty()) {
+                    std::string tmp; split_game_id(items[selected].game_id, sys_to_search, tmp);
+                    media_rel = game_id_to_cur_rel(items[selected].game_id);
                 }
 
                 // 1. Cerca boxart (solo se non già caricata dal blocco immediato)
@@ -4978,28 +6406,13 @@ int main(int, char* argv[]) {
                     std::string gn = items[idx].name;
                     std::string search_sys = current_sys;
                     std::string item_rel   = current_rel;
-                    // Per i favoriti usa il nome reale dal game_id, non il display_name
-                    if (in_favorites && idx < (int)favorites_list.size()) {
-                        const std::string& gid = favorites_list[idx].game_id;
+                    // Per viste speciali usa items[idx].game_id (viaggia con l'item durante sort/filter)
+                    if (!items[idx].game_id.empty()) {
+                        const std::string& gid = items[idx].game_id;
                         size_t sl = gid.find_last_of('/');
                         gn = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                        search_sys = favorites_list[idx].system;
-                        item_rel   = game_id_to_cur_rel(gid);
-                    } else if (in_lastplayed && idx < (int)lastplayed_list.size()) {
-                        const std::string& gid = lastplayed_list[idx].game_id;
-                        size_t sl = gid.find_last_of('/');
-                        gn = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                        search_sys = lastplayed_list[idx].system;
-                        item_rel   = game_id_to_cur_rel(gid);
-                    } else if (in_collection && collection_games.count(current_collection_name)) {
-                        const auto& gids = collection_games.at(current_collection_name);
-                        if (idx < (int)gids.size()) {
-                            const std::string& gid = gids[idx];
-                            size_t sl = gid.find_last_of('/');
-                            gn = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                            std::string tmp; split_game_id(gid, search_sys, tmp);
-                            item_rel = game_id_to_cur_rel(gid);
-                        }
+                        std::string tmp; split_game_id(gid, search_sys, tmp);
+                        item_rel = game_id_to_cur_rel(gid);
                     }
                     // Per i file rimuovi l'estensione; le cartelle non ce l'hanno
                     if (!items[idx].is_dir) {
@@ -5102,6 +6515,9 @@ int main(int, char* argv[]) {
                           for (const auto& f : favorites_list)
                               if (!f.system.empty() && !seen.count(f.system))
                                   { seen.insert(f.system); get_system_gamelist(f.system); } }
+                        sf_reset(); gamelist_base_items = items;
+                        build_sf_aux_for_favs();
+                        apply_sort_filter(items, sf_aux_gl, "", "");
                     } else if (in_lastplayed) {
                         items = load_lastplayed_as_items();
                         current_rel = "";
@@ -5112,16 +6528,24 @@ int main(int, char* argv[]) {
                           for (const auto& lp : lastplayed_list)
                               if (!lp.system.empty() && !seen.count(lp.system))
                                   { seen.insert(lp.system); get_system_gamelist(lp.system); } }
+                        sf_reset(); sf_sort_mode = SF_SORT_PLAYORDER; gamelist_base_items = items;
+                        build_sf_aux_for_lp();
+                        apply_sort_filter(items, sf_aux_gl, "", "");
                     } else if (in_collection) {
                         items = build_collection_items(current_collection_name);
                         current_rel = "";
                         current_sys = "";
                         current_gamelist.clear();
+                        sf_reset(); gamelist_base_items = items;
+                        build_sf_aux_for_col(current_collection_name);
+                        apply_sort_filter(items, sf_aux_gl, "", "");
                     } else {
                         current_rel = "/" + current_sys;
                         items = scan_directory(roms_base + current_rel, false, current_sys);
                         load_gamelist(roms_base + "/" + current_sys);
-                        if (show_gamelist_names) sort_items_by_display_name(items, current_gamelist);
+                        sf_reset();
+                        gamelist_base_items = items;
+                        apply_sort_filter(items, current_gamelist, current_sys, current_rel);
                     }
                     selected = 0; scroll = 0; in_games = true; needs_art_update = true; selection_timer = tick;
                     subfolder_nav_stack.clear();
@@ -5224,6 +6648,7 @@ int main(int, char* argv[]) {
                     case SDLK_LSHIFT:
                     case SDLK_RSHIFT: vbtn = 6;  break; // Shift = SELECT (theme selector)
                     case SDLK_s:      vbtn = 7;  break; // S = START (collections)
+                    case SDLK_TAB:    vbtn = 13; break; // Tab = SETTINGS (sort/filter)
                     default: break;
                 }
                 // Set held flags directly on first press (not via fake event, to avoid race with KEYUP)
@@ -5330,6 +6755,10 @@ int main(int, char* argv[]) {
                                         &list_bg_tex, &ctrl_cur, items, selected);
                     if (theme_changed) {
                         reload_theme_images();
+                        for (int i = 0; i <= 10; i++) {
+                            if (vol_icons[i]) { SDL_DestroyTexture(vol_icons[i]); vol_icons[i] = nullptr; }
+                            vol_icons[i] = load_theme_image(renderer, "vol_" + std::to_string(i) + ".png");
+                        }
                         carousel_stack.clear(); current_sf_node = nullptr;
                         items = build_main_carousel(); selected = 0; last_bg = "";
                         rebuild_system_list();
@@ -5427,9 +6856,28 @@ int main(int, char* argv[]) {
                                                      &bg_cur, &dev_cur, &dev_prev, &dev_next, &ctrl_cur);
                             slide_pos = theme_cfg.carousel_vertical ? 600.0f : 1024.0f;
                             last_bg = "";
+                            if (search_direct_enter && !items[selected].is_superfolder) {
+                                // Entra direttamente nel sistema (simula A: avvia bounce)
+                                play_sound(s_enter);
+                                last_main_sel = selected;
+                                bounce_timer = 0.0f;
+                                bounce_scale = 1.0f;
+                                bounce_enter_pending = true;
+                                input_delay = tick + 600;
+                                continue;
+                            }
                         } else {
                             needs_art_update = true;
                             selection_timer = tick;
+                            if (search_direct_launch && !items[selected].is_dir) {
+                                // Lancia il gioco direttamente (simula A: inietta evento joystick)
+                                SDL_Event fake; SDL_memset(&fake, 0, sizeof(fake));
+                                fake.type = SDL_JOYBUTTONDOWN;
+                                fake.jbutton.button = 1; // A
+                                SDL_PushEvent(&fake);
+                                input_delay = 0; // annulla il delay così l'evento viene processato subito
+                                continue;
+                            }
                         }
                         play_sound(s_click);
                     }
@@ -5525,7 +6973,7 @@ int main(int, char* argv[]) {
                         }
                     }
                 } else {
-                    if (btn == 6) { // SELECT: personal rating cycle (0->1->...->5->0)
+                    if (btn == 6) { // CREDIT: personal rating cycle (0->1->...->5->0)
                         if (!in_favorites && !in_lastplayed && !items.empty() && !items[selected].is_dir) {
                             std::string gid = build_selected_game_id(items, selected, in_favorites, in_lastplayed, current_sys, current_rel);
                             if (!gid.empty()) {
@@ -5537,26 +6985,42 @@ int main(int, char* argv[]) {
                             }
                         }
                     }
+                    if (btn == 13 && (!current_gamelist.empty() || in_favorites || in_lastplayed || in_collection)) { // SETTINGS: sort/filter
+                        stop_video_preview();
+                        const auto& active_gl = current_gamelist.empty() ? sf_aux_gl : current_gamelist;
+                        SDL_Texture* sf_bg = list_bg_tex ? list_bg_tex : bg_cur; // usa il bg della gamelist, come fa la search
+                        bool sf_changed = show_sort_filter_menu(renderer, font_path, sf_bg, active_gl);
+                        if (sf_changed) {
+                            int old_sel = selected;
+                            apply_sort_filter(items, active_gl, current_sys, current_rel);
+                            selected = std::min(old_sel, std::max(0, (int)items.size() - 1));
+                            scroll = std::max(0, selected - 5);
+                            needs_art_update = true; selection_timer = tick;
+                        }
+                        input_delay = tick + 300;
+                    }
                     if (btn == 4) { // Tasto Y: Aggiungi/Rimuovi Preferito
                         if (!items.empty() && !items[selected].is_dir) {
                             std::string game_id;
                             
                             if (in_favorites) {
                                 // Siamo nella lista preferiti: rimuovi il favorito
-                                if (selected < (int)favorites_list.size()) {
-                                    game_id = favorites_list[selected].game_id;
-                                    // Rimuovi dalla lista
-                                    favorites_list.erase(favorites_list.begin() + selected);
-                                    selected = std::max(0, selected - 1);
-                                    // Ricreaload items
+                                if (!items[selected].game_id.empty()) {
+                                    game_id = items[selected].game_id;
+                                    // Rimuovi dalla lista (cerca per game_id, non per indice)
+                                    auto it = std::find_if(favorites_list.begin(), favorites_list.end(),
+                                        [&](const FavoriteGame& f){ return f.game_id == game_id; });
+                                    if (it != favorites_list.end()) favorites_list.erase(it);
                                     items = load_favorites_as_items();
+                                    selected = std::min(selected, std::max(0, (int)items.size() - 1));
                                 }
                             } else if (in_lastplayed) {
                                 // Siamo in LAST PLAYED: aggiungi/rimuovi dai preferiti (NON toccare lastplayed_list)
-                                if (selected < (int)lastplayed_list.size()) {
-                                    std::string lp_game_id   = lastplayed_list[selected].game_id;
-                                    std::string lp_system    = lastplayed_list[selected].system;
-                                    std::string lp_display   = lastplayed_list[selected].display_name;
+                                if (!items[selected].game_id.empty()) {
+                                    std::string lp_game_id = items[selected].game_id;
+                                    std::string lp_display = items[selected].name;
+                                    std::string lp_system, lp_fn_;
+                                    split_game_id(lp_game_id, lp_system, lp_fn_);
                                     bool already_fav = false;
                                     for (int i = 0; i < (int)favorites_list.size(); i++) {
                                         if (favorites_list[i].game_id == lp_game_id) {
@@ -5569,19 +7033,33 @@ int main(int, char* argv[]) {
                                         favorites_list.push_back({lp_game_id, lp_system, lp_display});
                                     }
                                 }
-                            } else if (in_collection && collection_games.count(current_collection_name)) {
-                                // Siamo in una collection: rimuovi il gioco dalla collection
-                                auto& glist = collection_games[current_collection_name];
-                                if (selected < (int)glist.size()) {
-                                    glist.erase(glist.begin() + selected);
-                                    save_collections();
-                                    items.erase(items.begin() + selected);
-                                    if (selected >= (int)items.size()) selected = std::max(0, (int)items.size() - 1);
-                                    needs_art_update = true; selection_timer = tick;
+                            } else if (in_collection && !items[selected].game_id.empty()) {
+                                // Siamo in una collection: aggiungi/rimuovi dai preferiti
+                                // (NON toccare collection_games — la rimozione dalla collection
+                                //  avviene nel popup dedicato aperto con B/X dal sistema)
+                                {
+                                    std::string col_game_id = items[selected].game_id;
+                                    std::string col_sys, col_fname;
+                                    split_game_id(col_game_id, col_sys, col_fname);
+                                    std::string col_display = col_fname;
+                                    size_t dot = col_display.rfind('.');
+                                    if (dot != std::string::npos) col_display = col_display.substr(0, dot);
+                                    // Prova a prendere il display name dal gamelist (più leggibile)
+                                    { std::string tmp = col_fname; size_t d = tmp.rfind('.'); if (d != std::string::npos) tmp = tmp.substr(0, d);
+                                      auto* gi = find_game_info_for_system(col_sys, tmp);
+                                      if (gi && !gi->name.empty()) col_display = gi->name; }
+                                    bool already_fav = false;
+                                    for (int i = 0; i < (int)favorites_list.size(); i++) {
+                                        if (favorites_list[i].game_id == col_game_id) {
+                                            favorites_list.erase(favorites_list.begin() + i);
+                                            already_fav = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!already_fav) {
+                                        favorites_list.push_back({col_game_id, col_sys, col_display});
+                                    }
                                 }
-                                play_sound(s_back);
-                                input_delay = tick + 300;
-                                continue;
                             } else if (!current_sys.empty()) {
                                 // Siamo in un sistema normale: aggiungi/rimuovi favorito
                                 std::string rel_path = current_rel.substr(("/" + current_sys).length());
@@ -5617,38 +7095,22 @@ int main(int, char* argv[]) {
                     }
 
                     if (btn == 32) {
-                        if (theme_cfg.gamelist_3dbox_enabled && !system_list.empty()) {
-                            // Giù in 3dbox = sistema successivo
-                            stop_video_preview();
-                            if (video_texture) { SDL_DestroyTexture(video_texture); video_texture = nullptr; }
-                            if (box_art) { SDL_DestroyTexture(box_art); box_art = nullptr; }
-                            if (screenshot_tex) { SDL_DestroyTexture(screenshot_tex); screenshot_tex = nullptr; }
-                            if (marquee_tex) { SDL_DestroyTexture(marquee_tex); marquee_tex = nullptr; }
-                            { for (auto& kv : box3d_cache) SDL_DestroyTexture(kv.second); box3d_cache.clear(); }
+                        if (theme_cfg.gamelist_3dbox_enabled && (!system_list.empty() || !sf_collection_list.empty())) {
+                            // Giù in 3dbox = sistema/collection successivo
                             if (current_sf_node != nullptr) {
-                                // SF mode: 0-based, no FAVORITES slot
-                                int sys_idx = 0;
-                                for (int si = 0; si < (int)system_list.size(); si++)
-                                    if (system_list[si] == current_sys) { sys_idx = si; break; }
-                                sys_idx = (sys_idx + 1) % (int)system_list.size();
-                                in_favorites = false;
-                                current_sys = system_list[sys_idx];
-                                current_rel = "/" + current_sys;
-                                items = scan_directory(roms_base + current_rel, false, current_sys);
-                                load_gamelist(roms_base + "/" + current_sys);
-                                if (show_gamelist_names) sort_items_by_display_name(items, current_gamelist);
-                                last_main_sel = sys_idx;
+                                navigate_sf(+1);
                             } else {
                                 int nsys3 = (int)system_list.size(), ncol3 = (int)collection_names.size();
                                 int tot3 = nsys3 + 2 + ncol3;
-                                int cur_idx = in_favorites ? 0 : in_lastplayed ? nsys3 + 1 : 0;
-                                if (in_collection) { cur_idx = nsys3 + 2; for (int ci = 0; ci < ncol3; ci++) if (collection_names[ci] == current_collection_name) { cur_idx = nsys3 + 2 + ci; break; } }
+                                // Nuovo ordine: FAV(0) → sistemi(1..N) → collections(N+1..N+C) → LAST PLAYED(N+C+1)
+                                int cur_idx = in_favorites ? 0 : in_lastplayed ? nsys3 + 1 + ncol3 : 0;
+                                if (in_collection) { cur_idx = nsys3 + 1; for (int ci = 0; ci < ncol3; ci++) if (collection_names[ci] == current_collection_name) { cur_idx = nsys3 + 1 + ci; break; } }
                                 else if (!in_favorites && !in_lastplayed) for (int si = 0; si < nsys3; si++) if (system_list[si] == current_sys) { cur_idx = si + 1; break; }
                                 cur_idx = (cur_idx + 1) % tot3;
-                                if (cur_idx == 0) { in_favorites = true; in_lastplayed = false; in_collection = false; current_collection_name = ""; items = load_favorites_as_items(); current_rel = ""; current_sys = ""; current_gamelist.clear(); last_main_sel = 0;
-                                } else if (cur_idx == nsys3 + 1) { in_lastplayed = true; in_favorites = false; in_collection = false; current_collection_name = ""; items = load_lastplayed_as_items(); current_rel = ""; current_sys = ""; current_gamelist.clear(); last_main_sel = nsys3 + 1;
-                                } else if (cur_idx > nsys3 + 1) { int ci = cur_idx - nsys3 - 2; in_collection = true; in_favorites = false; in_lastplayed = false; current_collection_name = collection_names[ci]; items = build_collection_items(current_collection_name); current_rel = ""; current_sys = ""; current_gamelist.clear(); last_main_sel = cur_idx;
-                                } else { in_favorites = false; in_lastplayed = false; in_collection = false; current_collection_name = ""; current_sys = system_list[cur_idx - 1]; current_rel = "/" + current_sys; items = scan_directory(roms_base + current_rel, false, current_sys); load_gamelist(roms_base + "/" + current_sys); if (show_gamelist_names) sort_items_by_display_name(items, current_gamelist); last_main_sel = cur_idx; }
+                                if (cur_idx == 0) { in_favorites = true; in_lastplayed = false; in_collection = false; current_collection_name = ""; items = load_favorites_as_items(); current_rel = ""; current_sys = ""; current_gamelist.clear(); sf_reset(); gamelist_base_items = items; build_sf_aux_for_favs(); apply_sort_filter(items, sf_aux_gl, "", ""); last_main_sel = 0;
+                                } else if (cur_idx == nsys3 + 1 + ncol3) { in_lastplayed = true; in_favorites = false; in_collection = false; current_collection_name = ""; items = load_lastplayed_as_items(); current_rel = ""; current_sys = ""; current_gamelist.clear(); sf_reset(); sf_sort_mode = SF_SORT_PLAYORDER; gamelist_base_items = items; build_sf_aux_for_lp(); apply_sort_filter(items, sf_aux_gl, "", ""); last_main_sel = nsys3 + 1 + ncol3;
+                                } else if (cur_idx > nsys3 && cur_idx < nsys3 + 1 + ncol3) { int ci = cur_idx - nsys3 - 1; in_collection = true; in_favorites = false; in_lastplayed = false; current_collection_name = collection_names[ci]; items = build_collection_items(current_collection_name); current_rel = ""; current_sys = ""; current_gamelist.clear(); sf_reset(); gamelist_base_items = items; build_sf_aux_for_col(current_collection_name); apply_sort_filter(items, sf_aux_gl, "", ""); last_main_sel = cur_idx;
+                                } else { in_favorites = false; in_lastplayed = false; in_collection = false; current_collection_name = ""; current_sys = system_list[cur_idx - 1]; current_rel = "/" + current_sys; items = scan_directory(roms_base + current_rel, false, current_sys); load_gamelist(roms_base + "/" + current_sys); sf_reset(); gamelist_base_items = items; apply_sort_filter(items, current_gamelist, current_sys, current_rel); last_main_sel = cur_idx; }
                             }
                             selected = 0; scroll = 0; needs_art_update = true; selection_timer = tick;
                             play_sound(s_click);
@@ -5656,38 +7118,22 @@ int main(int, char* argv[]) {
                             selected++; play_sound(s_click); needs_art_update = true; selection_timer = tick;
                         }
                     } else if (btn == 29) {
-                        if (theme_cfg.gamelist_3dbox_enabled && !system_list.empty()) {
-                            // Su in 3dbox = sistema precedente
-                            stop_video_preview();
-                            if (video_texture) { SDL_DestroyTexture(video_texture); video_texture = nullptr; }
-                            if (box_art) { SDL_DestroyTexture(box_art); box_art = nullptr; }
-                            if (screenshot_tex) { SDL_DestroyTexture(screenshot_tex); screenshot_tex = nullptr; }
-                            if (marquee_tex) { SDL_DestroyTexture(marquee_tex); marquee_tex = nullptr; }
-                            { for (auto& kv : box3d_cache) SDL_DestroyTexture(kv.second); box3d_cache.clear(); }
+                        if (theme_cfg.gamelist_3dbox_enabled && (!system_list.empty() || !sf_collection_list.empty())) {
+                            // Su in 3dbox = sistema/collection precedente
                             if (current_sf_node != nullptr) {
-                                // SF mode: 0-based, no FAVORITES slot
-                                int sys_idx = 0;
-                                for (int si = 0; si < (int)system_list.size(); si++)
-                                    if (system_list[si] == current_sys) { sys_idx = si; break; }
-                                sys_idx = (sys_idx - 1 + (int)system_list.size()) % (int)system_list.size();
-                                in_favorites = false;
-                                current_sys = system_list[sys_idx];
-                                current_rel = "/" + current_sys;
-                                items = scan_directory(roms_base + current_rel, false, current_sys);
-                                load_gamelist(roms_base + "/" + current_sys);
-                                if (show_gamelist_names) sort_items_by_display_name(items, current_gamelist);
-                                last_main_sel = sys_idx;
+                                navigate_sf(-1);
                             } else {
                                 int nsys3 = (int)system_list.size(), ncol3 = (int)collection_names.size();
                                 int tot3 = nsys3 + 2 + ncol3;
-                                int cur_idx = in_favorites ? 0 : in_lastplayed ? nsys3 + 1 : 0;
-                                if (in_collection) { cur_idx = nsys3 + 2; for (int ci = 0; ci < ncol3; ci++) if (collection_names[ci] == current_collection_name) { cur_idx = nsys3 + 2 + ci; break; } }
+                                // Nuovo ordine: FAV(0) → sistemi(1..N) → collections(N+1..N+C) → LAST PLAYED(N+C+1)
+                                int cur_idx = in_favorites ? 0 : in_lastplayed ? nsys3 + 1 + ncol3 : 0;
+                                if (in_collection) { cur_idx = nsys3 + 1; for (int ci = 0; ci < ncol3; ci++) if (collection_names[ci] == current_collection_name) { cur_idx = nsys3 + 1 + ci; break; } }
                                 else if (!in_favorites && !in_lastplayed) for (int si = 0; si < nsys3; si++) if (system_list[si] == current_sys) { cur_idx = si + 1; break; }
                                 cur_idx = (cur_idx - 1 + tot3) % tot3;
-                                if (cur_idx == 0) { in_favorites = true; in_lastplayed = false; in_collection = false; current_collection_name = ""; items = load_favorites_as_items(); current_rel = ""; current_sys = ""; current_gamelist.clear(); last_main_sel = 0;
-                                } else if (cur_idx == nsys3 + 1) { in_lastplayed = true; in_favorites = false; in_collection = false; current_collection_name = ""; items = load_lastplayed_as_items(); current_rel = ""; current_sys = ""; current_gamelist.clear(); last_main_sel = nsys3 + 1;
-                                } else if (cur_idx > nsys3 + 1) { int ci = cur_idx - nsys3 - 2; in_collection = true; in_favorites = false; in_lastplayed = false; current_collection_name = collection_names[ci]; items = build_collection_items(current_collection_name); current_rel = ""; current_sys = ""; current_gamelist.clear(); last_main_sel = cur_idx;
-                                } else { in_favorites = false; in_lastplayed = false; in_collection = false; current_collection_name = ""; current_sys = system_list[cur_idx - 1]; current_rel = "/" + current_sys; items = scan_directory(roms_base + current_rel, false, current_sys); load_gamelist(roms_base + "/" + current_sys); if (show_gamelist_names) sort_items_by_display_name(items, current_gamelist); last_main_sel = cur_idx; }
+                                if (cur_idx == 0) { in_favorites = true; in_lastplayed = false; in_collection = false; current_collection_name = ""; items = load_favorites_as_items(); current_rel = ""; current_sys = ""; current_gamelist.clear(); sf_reset(); gamelist_base_items = items; build_sf_aux_for_favs(); apply_sort_filter(items, sf_aux_gl, "", ""); last_main_sel = 0;
+                                } else if (cur_idx == nsys3 + 1 + ncol3) { in_lastplayed = true; in_favorites = false; in_collection = false; current_collection_name = ""; items = load_lastplayed_as_items(); current_rel = ""; current_sys = ""; current_gamelist.clear(); sf_reset(); sf_sort_mode = SF_SORT_PLAYORDER; gamelist_base_items = items; build_sf_aux_for_lp(); apply_sort_filter(items, sf_aux_gl, "", ""); last_main_sel = nsys3 + 1 + ncol3;
+                                } else if (cur_idx > nsys3 && cur_idx < nsys3 + 1 + ncol3) { int ci = cur_idx - nsys3 - 1; in_collection = true; in_favorites = false; in_lastplayed = false; current_collection_name = collection_names[ci]; items = build_collection_items(current_collection_name); current_rel = ""; current_sys = ""; current_gamelist.clear(); sf_reset(); gamelist_base_items = items; build_sf_aux_for_col(current_collection_name); apply_sort_filter(items, sf_aux_gl, "", ""); last_main_sel = cur_idx;
+                                } else { in_favorites = false; in_lastplayed = false; in_collection = false; current_collection_name = ""; current_sys = system_list[cur_idx - 1]; current_rel = "/" + current_sys; items = scan_directory(roms_base + current_rel, false, current_sys); load_gamelist(roms_base + "/" + current_sys); sf_reset(); gamelist_base_items = items; apply_sort_filter(items, current_gamelist, current_sys, current_rel); last_main_sel = cur_idx; }
                             }
                             selected = 0; scroll = 0; needs_art_update = true; selection_timer = tick;
                             play_sound(s_click);
@@ -5711,29 +7157,8 @@ int main(int, char* argv[]) {
                             }
                         } else {
                         if (current_sf_node != nullptr) {
-                            // Inside a SuperFolder: cycle only between SF systems, no FAVORITES
-                            int sys_idx = 0;
-                            for (int si = 0; si < (int)system_list.size(); si++)
-                                if (system_list[si] == current_sys) { sys_idx = si; break; }
-                            int total_sys = (int)system_list.size();
-                            if (total_sys > 0) {
-                                if (btn == 31) sys_idx = (sys_idx + 1) % total_sys;
-                                else           sys_idx = (sys_idx - 1 + total_sys) % total_sys;
-                                stop_video_preview();
-                                if (video_texture) { SDL_DestroyTexture(video_texture); video_texture = nullptr; }
-                                if (box_art) { SDL_DestroyTexture(box_art); box_art = nullptr; }
-                                if (marquee_tex) { SDL_DestroyTexture(marquee_tex); marquee_tex = nullptr; }
-                                in_favorites = false;
-                                current_sys = system_list[sys_idx];
-                                current_rel = "/" + current_sys;
-                                items = scan_directory(roms_base + current_rel, false, current_sys);
-                                load_gamelist(roms_base + "/" + current_sys);
-                                if (show_gamelist_names) sort_items_by_display_name(items, current_gamelist);
-                                last_main_sel = sys_idx;
-                                selected = 0; scroll = 0;
-                                needs_art_update = true; selection_timer = tick;
-                                play_sound(s_click);
-                            }
+                            // Inside a SuperFolder: cycle tra sistemi E collection del SF
+                            navigate_sf(btn == 31 ? +1 : -1);
                         } else {
                         // Indice corrente: FAVORITES=0, sistemi=1..N, LAST PLAYED=N+1, collezioni=N+2..
                         int nsys = (int)system_list.size();
@@ -5762,11 +7187,13 @@ int main(int, char* argv[]) {
                             in_favorites = true; in_lastplayed = false; in_collection = false; current_collection_name = "";
                             items = load_favorites_as_items();
                             current_rel = ""; current_sys = ""; current_gamelist.clear();
+                            sf_reset(); gamelist_base_items = items; build_sf_aux_for_favs(); apply_sort_filter(items, sf_aux_gl, "", "");
                             last_main_sel = 0;
                         } else if (cur_idx == nsys + 1) {
                             in_lastplayed = true; in_favorites = false; in_collection = false; current_collection_name = "";
                             items = load_lastplayed_as_items();
                             current_rel = ""; current_sys = ""; current_gamelist.clear();
+                            sf_reset(); sf_sort_mode = SF_SORT_PLAYORDER; gamelist_base_items = items; build_sf_aux_for_lp(); apply_sort_filter(items, sf_aux_gl, "", "");
                             last_main_sel = nsys + 1;
                         } else if (cur_idx > nsys + 1) {
                             // Vai a una collezione
@@ -5775,6 +7202,7 @@ int main(int, char* argv[]) {
                             current_collection_name = collection_names[ci];
                             items = build_collection_items(current_collection_name);
                             current_rel = ""; current_sys = ""; current_gamelist.clear();
+                            sf_reset(); gamelist_base_items = items; build_sf_aux_for_col(current_collection_name); apply_sort_filter(items, sf_aux_gl, "", "");
                             last_main_sel = cur_idx;
                         } else {
                             // Vai a sistema normale
@@ -5783,7 +7211,8 @@ int main(int, char* argv[]) {
                             current_rel = "/" + current_sys;
                             items = scan_directory(roms_base + current_rel, false, current_sys);
                             load_gamelist(roms_base + "/" + current_sys);
-                            if (show_gamelist_names) sort_items_by_display_name(items, current_gamelist);
+                            sf_reset(); gamelist_base_items = items;
+                            apply_sort_filter(items, current_gamelist, current_sys, current_rel);
                             last_main_sel = cur_idx;
                         }
                         selected = 0; scroll = 0;
@@ -5807,7 +7236,8 @@ int main(int, char* argv[]) {
                             items = scan_directory(roms_base + current_rel, false, current_sys);
                             // Carica il gamelist della subfolder (merge sopra la root)
                             load_gamelist(roms_base + "/" + current_sys, roms_base + current_rel);
-                            if (show_gamelist_names) sort_items_by_display_name(items, current_gamelist);
+                            gamelist_base_items = items;
+                            apply_sort_filter(items, current_gamelist, current_sys, current_rel);
                             selected = 0; scroll = 0;
                             needs_art_update = true; selection_timer = tick;
                         } else {
@@ -5817,6 +7247,19 @@ int main(int, char* argv[]) {
                             // SDL_CloseAudioDevice() alone is not enough — the SDL audio
                             // subsystem keeps /dev/snd/* open until SDL_QuitSubSystem().
                             SDL_QuitSubSystem(SDL_INIT_AUDIO);
+                            // Libera tutte le texture e la surface cache prima del lancio
+                            // per ridurre il footprint di RAM del launcher ed evitare che
+                            // l'OOM killer lo uccida mentre il core alloca la propria memoria.
+                            if (box_art)        { SDL_DestroyTexture(box_art);        box_art        = nullptr; }
+                            if (screenshot_tex) { SDL_DestroyTexture(screenshot_tex); screenshot_tex = nullptr; }
+                            if (marquee_tex)    { SDL_DestroyTexture(marquee_tex);    marquee_tex    = nullptr; }
+                            if (bg_cur)         { SDL_DestroyTexture(bg_cur);         bg_cur         = nullptr; }
+                            if (dev_cur)        { SDL_DestroyTexture(dev_cur);        dev_cur        = nullptr; }
+                            if (dev_prev)       { SDL_DestroyTexture(dev_prev);       dev_prev       = nullptr; }
+                            if (dev_next)       { SDL_DestroyTexture(dev_next);       dev_next       = nullptr; }
+                            if (ctrl_cur)       { SDL_DestroyTexture(ctrl_cur);       ctrl_cur       = nullptr; }
+                            if (list_bg_tex)    { SDL_DestroyTexture(list_bg_tex);    list_bg_tex    = nullptr; }
+                            clear_surface_cache(); // libera le superfici preloaded (la quota RAM più grande)
                             // NON chiudiamo SDL_INIT_JOYSTICK prima del lancio:
                             // RetroArch legge /dev/input direttamente (non tramite SDL del launcher),
                             // e i remapping di start_local_sd.sh sono a livello kernel → arrivano
@@ -5861,40 +7304,25 @@ int main(int, char* argv[]) {
                                 const std::string launch_script = (hdmi_connected && hdmi_script_exists)
                                     ? "sh /sdcard/start_local_sd_HDMI.sh"
                                     : "sh /sdcard/start_local_sd.sh";
-                            if (in_favorites && selected < (int)favorites_list.size()) {
-                                // Lancio dal sistema FAVORITES
-                                const FavoriteGame& fav = favorites_list[selected];
-                                std::string full_path = roms_base + "/" + fav.game_id;
-                                std::cerr << "[DEBUG] Lancio FAVORITES: " << full_path << std::endl;
-                                add_to_lastplayed(fav.game_id, fav.system, fav.display_name);
-                                system((launch_script + " \"\" \"\" \"\" \"" + full_path + "\"").c_str());
-                            } else if (in_lastplayed && selected < (int)lastplayed_list.size()) {
-                                // Lancio dal sistema LAST PLAYED
-                                // Copia preventiva: add_to_lastplayed modifica lastplayed_list
-                                // (remove_if sposta elementi) rendendo lp una dangling reference.
-                                std::string lp_game_id  = lastplayed_list[selected].game_id;
-                                std::string lp_system   = lastplayed_list[selected].system;
-                                std::string lp_display  = lastplayed_list[selected].display_name;
-                                std::string full_path = roms_base + "/" + lp_game_id;
-                                std::cerr << "[DEBUG] Lancio LAST PLAYED: " << full_path << std::endl;
-                                add_to_lastplayed(lp_game_id, lp_system, lp_display);
-                                system((launch_script + " \"\" \"\" \"\" \"" + full_path + "\"").c_str());
-                            } else if (in_collection && collection_games.count(current_collection_name)) {
-                                // Lancio da COLLECTION
-                                const auto& gids = collection_games.at(current_collection_name);
-                                if (selected < (int)gids.size()) {
-                                    const std::string& gid = gids[selected];
-                                    std::string full_path = roms_base + "/" + gid;
-                                    size_t sl = gid.find('/');
-                                    std::string col_sys = (sl != std::string::npos) ? gid.substr(0, sl) : "";
-                                    std::string lp_disp = gid.substr(gid.rfind('/') + 1);
-                                    { size_t d = lp_disp.rfind('.'); if (d != std::string::npos) lp_disp = lp_disp.substr(0, d); }
-                                    const GameInfo* gi = find_game_info(lp_disp);
+                            if ((in_favorites || in_lastplayed || in_collection) && !items[selected].game_id.empty()) {
+                                // Lancio da FAVORITES / LAST PLAYED / COLLECTION
+                                // items[selected].game_id è sempre corretto anche dopo sort/filter.
+                                const std::string& gid = items[selected].game_id;
+                                std::string lp_sys, lp_fn;
+                                split_game_id(gid, lp_sys, lp_fn);
+                                std::string full_path = roms_base + "/" + gid;
+                                std::string lp_disp = items[selected].name; // display_name per fav/lp; filename per col
+                                if (in_collection) {
+                                    // Per collection prova a prendere il nome dal gamelist
+                                    std::string fn_stem = lp_fn;
+                                    size_t d = fn_stem.rfind('.'); if (d != std::string::npos) fn_stem = fn_stem.substr(0, d);
+                                    const GameInfo* gi = find_game_info_for_system(lp_sys, fn_stem);
                                     if (gi && !gi->name.empty()) lp_disp = gi->name;
-                                    std::cerr << "[DEBUG] Lancio COLLECTION: " << full_path << std::endl;
-                                    add_to_lastplayed(gid, col_sys, lp_disp);
-                                    system((launch_script + " \"\" \"\" \"\" \"" + full_path + "\"").c_str());
+                                    else { size_t d2 = lp_disp.rfind('.'); if (d2 != std::string::npos) lp_disp = lp_disp.substr(0, d2); }
                                 }
+                                std::cerr << "[DEBUG] Lancio " << (in_favorites ? "FAVORITES" : in_lastplayed ? "LAST PLAYED" : "COLLECTION") << ": " << full_path << std::endl;
+                                add_to_lastplayed(gid, lp_sys, lp_disp);
+                                system((launch_script + " \"\" \"\" \"\" \"" + full_path + "\"").c_str());
                             } else {
                                 // Lancio dal sistema normale
                                 std::string full_path = roms_base + current_rel + "/" + items[selected].name;
@@ -5949,6 +7377,10 @@ int main(int, char* argv[]) {
                             // so flags would stay true causing phantom fast-scroll after game exit
                             left_held = right_held = up_held = down_held = false;
                             fast_scroll_next = UINT32_MAX;
+                            // Ricarica le texture del carousel e lo sfondo lista (erano state liberate prima del lancio)
+                            list_bg_tex = load_texture_png_jpg(renderer, theme_p() + "bg/list_bg");
+                            if (!items.empty())
+                                update_carousel_textures(renderer, items, selected, &bg_cur, &dev_cur, &dev_prev, &dev_next, &ctrl_cur);
                             needs_art_update = true;
                             // Refresh items se siamo in last played: l'ordine è cambiato
                             if (in_lastplayed) {
@@ -6036,7 +7468,8 @@ int main(int, char* argv[]) {
                                     load_gamelist(roms_base + "/" + current_sys);
                                 else
                                     load_gamelist(roms_base + "/" + current_sys, roms_base + current_rel);
-                                if (show_gamelist_names) sort_items_by_display_name(items, current_gamelist);
+                                gamelist_base_items = items;
+                                apply_sort_filter(items, current_gamelist, current_sys, current_rel);
                                 stop_video_preview();
                                 pending_video_path = "";
                                 video_fading = false;
@@ -6064,18 +7497,11 @@ int main(int, char* argv[]) {
                         if (!collection_names.empty()) {
                             stop_video_preview();
                             std::string game_id, game_name;
-                            if (in_favorites && selected < (int)favorites_list.size()) {
-                                game_id   = favorites_list[selected].game_id;
-                                game_name = favorites_list[selected].display_name;
-                            } else if (in_lastplayed && selected < (int)lastplayed_list.size()) {
-                                game_id   = lastplayed_list[selected].game_id;
-                                game_name = lastplayed_list[selected].display_name;
-                            } else if (in_collection && collection_games.count(current_collection_name)) {
-                                const auto& gids = collection_games.at(current_collection_name);
-                                if (selected < (int)gids.size()) {
-                                    game_id = gids[selected];
-                                    game_name = game_id.substr(game_id.rfind('/') + 1);
-                                    { size_t d = game_name.rfind('.'); if (d != std::string::npos) game_name = game_name.substr(0, d); }
+                            if ((in_favorites || in_lastplayed || in_collection) && !items[selected].game_id.empty()) {
+                                game_id   = items[selected].game_id;
+                                game_name = items[selected].name; // display_name per fav/lp, filename per col
+                                if (in_collection) {
+                                    // Per collection prova a ottenere nome gamelist
                                     std::string col_sys, col_fn; split_game_id(game_id, col_sys, col_fn); size_t d2 = col_fn.rfind('.'); if (d2 != std::string::npos) col_fn = col_fn.substr(0, d2);
                                     const GameInfo* gi = find_game_info_for_system(col_sys, col_fn); if (!gi) gi = find_game_info(col_fn);
                                     if (gi && !gi->name.empty()) game_name = gi->name;
@@ -6321,17 +7747,19 @@ int main(int, char* argv[]) {
                     float scale = std::min((float)theme_cfg.logo_max_h / lh, (float)theme_cfg.logo_max_w / lw);
                     int dw = (int)(lw * scale), dh = (int)(lh * scale);
                     int draw_x = (theme_cfg.logo_x < 0) ? 512 - dw / 2 : theme_cfg.logo_x;
+                    int draw_y = theme_cfg.logo_y;
+                    if (theme_cfg.logo_anchor_center) { draw_x -= dw / 2; draw_y -= dh / 2; }
                     // Shadow
                     if (theme_cfg.shadows) {
                         SDL_SetTextureColorMod(logo_tex, theme_cfg.shadow_color.r, theme_cfg.shadow_color.g, theme_cfg.shadow_color.b);
                         SDL_SetTextureAlphaMod(logo_tex, (Uint8)theme_cfg.logo_shadow_alpha);
-                        SDL_Rect lr_sh = { draw_x + theme_cfg.shadow_offset_x, theme_cfg.logo_y + theme_cfg.shadow_offset_y, dw, dh };
+                        SDL_Rect lr_sh = { draw_x + theme_cfg.shadow_offset_x, draw_y + theme_cfg.shadow_offset_y, dw, dh };
                         SDL_RenderCopy(renderer, logo_tex, NULL, &lr_sh);
                     }
                     // Logo
                     SDL_SetTextureColorMod(logo_tex, 255, 255, 255);
                     SDL_SetTextureAlphaMod(logo_tex, 255);
-                    SDL_Rect lr = { draw_x, theme_cfg.logo_y, dw, dh };
+                    SDL_Rect lr = { draw_x, draw_y, dw, dh };
                     SDL_RenderCopy(renderer, logo_tex, NULL, &lr);
                     SDL_DestroyTexture(logo_tex);
                 } else {
@@ -6499,6 +7927,7 @@ int main(int, char* argv[]) {
                 if (th > theme_cfg.boxart_overlay_max_h) { th = theme_cfg.boxart_overlay_max_h; tw = (int)(th * asp); }
                 int dx = theme_cfg.boxart_overlay_x;
                 int dy = theme_cfg.boxart_overlay_y;
+                if (theme_cfg.boxart_overlay_anchor_center) { dx -= tw / 2; dy -= th / 2; }
                 if (theme_cfg.boxart_overlay_shadow) {
                     SDL_SetTextureAlphaMod(box_art, (Uint8)theme_cfg.boxart_overlay_shadow_alpha);
                     SDL_SetTextureColorMod(box_art, 0, 0, 0);
@@ -6518,28 +7947,20 @@ int main(int, char* argv[]) {
                 // Per i favoriti usa il nome reale dal game_id (include l'estensione ROM),
                 // come fa il blocco di caricamento art. Questo evita troncamenti errati
                 // per nomi che contengono un punto (es. "Dr. Mario", "Pac-Man Jr.").
-                if (in_favorites && selected < (int)favorites_list.size()) {
-                    const std::string& gid = favorites_list[selected].game_id;
+                if (!items[selected].game_id.empty()) {
+                    const std::string& gid = items[selected].game_id;
                     size_t sl = gid.find_last_of('/');
                     gname = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                } else if (in_lastplayed && selected < (int)lastplayed_list.size()) {
-                    const std::string& gid = lastplayed_list[selected].game_id;
-                    size_t sl = gid.find_last_of('/');
-                    gname = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                } else if (in_collection && collection_games.count(current_collection_name)) {
-                    const auto& gids = collection_games.at(current_collection_name);
-                    if (selected < (int)gids.size()) { size_t sl = gids[selected].rfind('/'); gname = (sl != std::string::npos) ? gids[selected].substr(sl + 1) : gids[selected]; }
                 }
                 size_t dot = gname.find_last_of('.');
                 if (dot != std::string::npos) gname = gname.substr(0, dot);
                 const GameInfo* gi = nullptr;
-                if (in_favorites && selected < (int)favorites_list.size()) {
-                    gi = find_game_info_for_system(favorites_list[selected].system, gname);
-                } else if (in_lastplayed && selected < (int)lastplayed_list.size()) {
-                    gi = find_game_info_for_system(lastplayed_list[selected].system, gname);
-                } else if (in_collection && collection_games.count(current_collection_name)) {
-                    const auto& gids = collection_games.at(current_collection_name);
-                    if (selected < (int)gids.size()) { std::string col_sys, col_fn; split_game_id(gids[selected], col_sys, col_fn); size_t d = col_fn.rfind('.'); if (d != std::string::npos) col_fn = col_fn.substr(0, d); gi = find_game_info_for_system(col_sys, col_fn); if (!gi) gi = find_game_info(col_fn); }
+                if (!items[selected].game_id.empty()) {
+                    std::string col_sys, col_fn;
+                    split_game_id(items[selected].game_id, col_sys, col_fn);
+                    size_t d = col_fn.rfind('.'); if (d != std::string::npos) col_fn = col_fn.substr(0, d);
+                    gi = find_game_info_for_system(col_sys, col_fn);
+                    if (!gi) gi = find_game_info(col_fn);
                 } else {
                     gi = find_game_info(gname);
                 }
@@ -6592,12 +8013,23 @@ int main(int, char* argv[]) {
                     std::string pub = gi->publisher.empty() ? "N/A" : gi->publisher;
                     std::string players = gi->players.empty() ? "N/A" : gi->players;
                     std::string ext_rating = format_external_rating(gi->rating);
-                    std::string meta_row1 = "Release: " + rel + "  |  Genre: " + genre;
-                    std::string meta_row2 = "Developer: " + dev + "  |  Publisher: " + pub;
-                    std::string meta_row3 = "Players: " + players + "  |  Rating: " + ext_rating;
-                    draw_text(renderer, meta_font, meta_row1, meta_x, meta_y + meta_lh * 0, meta_fs, theme_cfg.game_meta_color);
-                    draw_text(renderer, meta_font, meta_row2, meta_x, meta_y + meta_lh * 1, meta_fs, theme_cfg.game_meta_color);
-                    draw_text(renderer, meta_font, meta_row3, meta_x, meta_y + meta_lh * 2, meta_fs, theme_cfg.game_meta_color);
+                    if (theme_cfg.game_meta_one_per_row) {
+                        // Un campo per riga (6 righe)
+                        draw_text(renderer, meta_font, "Release: "   + rel,        meta_x, meta_y + meta_lh * 0, meta_fs, theme_cfg.game_meta_color);
+                        draw_text(renderer, meta_font, "Genre: "     + genre,      meta_x, meta_y + meta_lh * 1, meta_fs, theme_cfg.game_meta_color);
+                        draw_text(renderer, meta_font, "Developer: " + dev,        meta_x, meta_y + meta_lh * 2, meta_fs, theme_cfg.game_meta_color);
+                        draw_text(renderer, meta_font, "Publisher: " + pub,        meta_x, meta_y + meta_lh * 3, meta_fs, theme_cfg.game_meta_color);
+                        draw_text(renderer, meta_font, "Players: "   + players,    meta_x, meta_y + meta_lh * 4, meta_fs, theme_cfg.game_meta_color);
+                        draw_text(renderer, meta_font, "Rating: "    + ext_rating, meta_x, meta_y + meta_lh * 5, meta_fs, theme_cfg.game_meta_color);
+                    } else {
+                        // Due campi per riga (3 righe, comportamento originale)
+                        std::string meta_row1 = "Release: " + rel + "  |  Genre: " + genre;
+                        std::string meta_row2 = "Developer: " + dev + "  |  Publisher: " + pub;
+                        std::string meta_row3 = "Players: " + players + "  |  Rating: " + ext_rating;
+                        draw_text(renderer, meta_font, meta_row1, meta_x, meta_y + meta_lh * 0, meta_fs, theme_cfg.game_meta_color);
+                        draw_text(renderer, meta_font, meta_row2, meta_x, meta_y + meta_lh * 1, meta_fs, theme_cfg.game_meta_color);
+                        draw_text(renderer, meta_font, meta_row3, meta_x, meta_y + meta_lh * 2, meta_fs, theme_cfg.game_meta_color);
+                    }
                 }
                 } // end if (gi)
 
@@ -6711,12 +8143,10 @@ int main(int, char* argv[]) {
                             bool b_is_fav = false;
                             if (in_favorites) {
                                 b_is_fav = true;
-                            } else if (in_lastplayed) {
-                                if (bidx < (int)lastplayed_list.size()) {
-                                    const std::string& lp_id = lastplayed_list[bidx].game_id;
-                                    for (const auto& fav : favorites_list)
-                                        if (fav.game_id == lp_id) { b_is_fav = true; break; }
-                                }
+                            } else if ((in_lastplayed || in_collection) && bidx < (int)items.size() && !items[bidx].game_id.empty()) {
+                                const std::string& gid_b = items[bidx].game_id;
+                                for (const auto& fav : favorites_list)
+                                    if (fav.game_id == gid_b) { b_is_fav = true; break; }
                             } else {
                                 std::string brel = current_rel.length() > ("/" + current_sys).length()
                                     ? current_rel.substr(("/" + current_sys).length()) : "";
@@ -6738,48 +8168,28 @@ int main(int, char* argv[]) {
                         if (is_center && theme_cfg.gamelist_3dbox_show_name
                             && bidx < (int)items.size()) {
                             std::string bn = items[bidx].name;
-                            if (in_favorites && bidx < (int)favorites_list.size()) {
-                                const std::string& gid = favorites_list[bidx].game_id;
+                            if (bidx < (int)items.size() && !items[bidx].game_id.empty()) {
+                                const std::string& gid = items[bidx].game_id;
                                 size_t sl = gid.find_last_of('/');
                                 bn = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                            } else if (in_lastplayed && bidx < (int)lastplayed_list.size()) {
-                                const std::string& gid = lastplayed_list[bidx].game_id;
-                                size_t sl = gid.find_last_of('/');
-                                bn = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                            } else if (in_collection && collection_games.count(current_collection_name)) {
-                                const auto& gids = collection_games.at(current_collection_name);
-                                if (bidx < (int)gids.size()) {
-                                    const std::string& gid = gids[bidx];
-                                    size_t sl = gid.find_last_of('/');
-                                    bn = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                                }
                             }
                             size_t bdot = bn.find_last_of('.');
                             if (bdot != std::string::npos) bn = bn.substr(0, bdot);
                             if (show_gamelist_names || in_favorites || in_lastplayed || in_collection) {
                                 const GameInfo* gi_b = nullptr;
-                                if (in_favorites && bidx < (int)favorites_list.size())
-                                    gi_b = find_game_info_for_system(favorites_list[bidx].system, bn);
-                                else if (in_lastplayed && bidx < (int)lastplayed_list.size())
-                                    gi_b = find_game_info_for_system(lastplayed_list[bidx].system, bn);
-                                else if (in_collection && collection_games.count(current_collection_name)) {
-                                    const auto& gids = collection_games.at(current_collection_name);
-                                    if (bidx < (int)gids.size()) {
-                                        std::string col_sys, col_fn;
-                                        split_game_id(gids[bidx], col_sys, col_fn);
-                                        size_t d = col_fn.rfind('.'); if (d != std::string::npos) col_fn = col_fn.substr(0, d);
-                                        gi_b = find_game_info_for_system(col_sys, col_fn);
-                                    }
+                                if (bidx < (int)items.size() && !items[bidx].game_id.empty()) {
+                                    std::string col_sys, col_fn;
+                                    split_game_id(items[bidx].game_id, col_sys, col_fn);
+                                    size_t d = col_fn.rfind('.'); if (d != std::string::npos) col_fn = col_fn.substr(0, d);
+                                    gi_b = find_game_info_for_system(col_sys, col_fn);
                                 } else
                                     gi_b = find_game_info(bn);
                                 if (gi_b && !gi_b->name.empty()) bn = gi_b->name;
                             }
-                            if (in_favorites && bidx < (int)favorites_list.size()) {
-                                std::string sys = get_system_fullname(favorites_list[bidx].system);
-                                bn = "[" + sys + "] " + bn;
-                            } else if (in_lastplayed && bidx < (int)lastplayed_list.size()) {
-                                std::string sys = get_system_fullname(lastplayed_list[bidx].system);
-                                bn = "[" + sys + "] " + bn;
+                            if ((in_favorites || in_lastplayed) && bidx < (int)items.size() && !items[bidx].game_id.empty()) {
+                                std::string sys_b, fn_b;
+                                split_game_id(items[bidx].game_id, sys_b, fn_b);
+                                bn = "[" + get_system_fullname(sys_b) + "] " + bn;
                             }
                             int bny = (theme_cfg.gamelist_3dbox_name_y >= 0)
                                 ? theme_cfg.gamelist_3dbox_name_y
@@ -6795,13 +8205,9 @@ int main(int, char* argv[]) {
                                 std::string bkey = items[bidx].name;
                                 size_t bdotk = bkey.find_last_of('.'); if (bdotk != std::string::npos) bkey = bkey.substr(0, bdotk);
                                 const GameInfo* gi_t = nullptr;
-                                if (in_favorites && bidx < (int)favorites_list.size())
-                                    gi_t = find_game_info_for_system(favorites_list[bidx].system, bkey);
-                                else if (in_lastplayed && bidx < (int)lastplayed_list.size())
-                                    gi_t = find_game_info_for_system(lastplayed_list[bidx].system, bkey);
-                                else if (in_collection && collection_games.count(current_collection_name) && bidx < (int)collection_games.at(current_collection_name).size()) {
+                                if (bidx < (int)items.size() && !items[bidx].game_id.empty()) {
                                     std::string col_sys, col_fn;
-                                    split_game_id(collection_games.at(current_collection_name)[bidx], col_sys, col_fn);
+                                    split_game_id(items[bidx].game_id, col_sys, col_fn);
                                     size_t d = col_fn.rfind('.'); if (d != std::string::npos) col_fn = col_fn.substr(0, d);
                                     gi_t = find_game_info_for_system(col_sys, col_fn);
                                 } else
@@ -6834,14 +8240,10 @@ int main(int, char* argv[]) {
                 int idx = scroll+i, yp = ly + (i * row_height);
                 std::string dn = items[idx].name;
                 if (!items[idx].is_dir) {
-                    // Per i favoriti usa il nome dal game_id (con estensione ROM) per evitare
-                    // troncamenti errati su nomi con punto (es. "Dr. Mario").
-                    if (in_favorites && idx < (int)favorites_list.size()) {
-                        const std::string& gid = favorites_list[idx].game_id;
-                        size_t sl = gid.find_last_of('/');
-                        dn = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
-                    } else if (in_lastplayed && idx < (int)lastplayed_list.size()) {
-                        const std::string& gid = lastplayed_list[idx].game_id;
+                    // Per le viste speciali usa il nome dal game_id (con estensione ROM)
+                    // per evitare troncamenti errati su nomi con punto (es. "Dr. Mario").
+                    if (!items[idx].game_id.empty()) {
+                        const std::string& gid = items[idx].game_id;
                         size_t sl = gid.find_last_of('/');
                         dn = (sl != std::string::npos) ? gid.substr(sl + 1) : gid;
                     }
@@ -6849,48 +8251,30 @@ int main(int, char* argv[]) {
                     // Favoriti/lastplayed/collection cercano sempre il nome da gamelist
                     if (show_gamelist_names || in_favorites || in_lastplayed || in_collection) {
                         const GameInfo* gi_l = nullptr;
-                        if (in_favorites && idx < (int)favorites_list.size())
-                            gi_l = find_game_info_for_system(favorites_list[idx].system, dn);
-                        else if (in_lastplayed && idx < (int)lastplayed_list.size())
-                            gi_l = find_game_info_for_system(lastplayed_list[idx].system, dn);
-                        else if (in_collection && collection_games.count(current_collection_name)) {
-                            const auto& gids = collection_games.at(current_collection_name);
-                            if (idx < (int)gids.size()) {
-                                std::string col_sys, col_fn;
-                                split_game_id(gids[idx], col_sys, col_fn);
-                                size_t d = col_fn.rfind('.'); if (d != std::string::npos) col_fn = col_fn.substr(0, d);
-                                gi_l = find_game_info_for_system(col_sys, col_fn);
-                            }
+                        if (!items[idx].game_id.empty()) {
+                            std::string col_sys, col_fn;
+                            split_game_id(items[idx].game_id, col_sys, col_fn);
+                            size_t d = col_fn.rfind('.'); if (d != std::string::npos) col_fn = col_fn.substr(0, d);
+                            gi_l = find_game_info_for_system(col_sys, col_fn);
                         } else
                             gi_l = find_game_info(dn);
                         if (gi_l && !gi_l->name.empty()) dn = gi_l->name;
                     }
                 }
-                if (in_favorites && idx < (int)favorites_list.size()) {
-                    std::string sys = get_system_fullname(favorites_list[idx].system);
-                    dn = "[" + sys + "] " + dn;
-                } else if (in_lastplayed && idx < (int)lastplayed_list.size()) {
-                    std::string sys = get_system_fullname(lastplayed_list[idx].system);
-                    dn = "[" + sys + "] " + dn;
+                if ((in_favorites || in_lastplayed) && idx < (int)items.size() && !items[idx].game_id.empty()) {
+                    std::string sys_i, fn_i;
+                    split_game_id(items[idx].game_id, sys_i, fn_i);
+                    dn = "[" + get_system_fullname(sys_i) + "] " + dn;
                 }
 
                 // --- CONTROLLO PREFERITO E COLORE ---
                 bool is_fav = false;
                 if (in_favorites) {
                     is_fav = true;
-                } else if (in_lastplayed) {
-                    if (idx < (int)lastplayed_list.size()) {
-                        const std::string& lp_id = lastplayed_list[idx].game_id;
-                        for (const auto& fav : favorites_list)
-                            if (fav.game_id == lp_id) { is_fav = true; break; }
-                    }
-                } else if (in_collection) {
-                    if (collection_games.count(current_collection_name)) {
-                        const auto& gids = collection_games.at(current_collection_name);
-                        if (idx < (int)gids.size())
-                            for (const auto& fav : favorites_list)
-                                if (fav.game_id == gids[idx]) { is_fav = true; break; }
-                    }
+                } else if ((in_lastplayed || in_collection) && idx < (int)items.size() && !items[idx].game_id.empty()) {
+                    const std::string& gid_i = items[idx].game_id;
+                    for (const auto& fav : favorites_list)
+                        if (fav.game_id == gid_i) { is_fav = true; break; }
                 } else if (!current_sys.empty()) {
                     std::string rel_path = current_rel.substr(("/" + current_sys).length());
                     std::string full_id = current_sys + rel_path + "/" + items[idx].name;
@@ -6907,7 +8291,8 @@ int main(int, char* argv[]) {
                 int text_x = theme_cfg.list_text_x;
                 if (idx == selected) {
                     SDL_SetRenderDrawColor(renderer, theme_cfg.color_highlight.r, theme_cfg.color_highlight.g, theme_cfg.color_highlight.b, theme_cfg.color_highlight.a);
-                    SDL_Rect rs = { text_x, yp+10, theme_cfg.list_highlight_w, theme_cfg.list_highlight_h };
+                    int hl_y = yp + (row_height - theme_cfg.list_highlight_h) / 2;
+                    SDL_Rect rs = { text_x, hl_y, theme_cfg.list_highlight_w, theme_cfg.list_highlight_h };
                     SDL_RenderFillRect(renderer, &rs);
                 }
 
@@ -6917,13 +8302,9 @@ int main(int, char* argv[]) {
                     std::string dn_key = items[idx].name;
                     size_t dot_c = dn_key.find_last_of('.'); if (dot_c != std::string::npos) dn_key = dn_key.substr(0, dot_c);
                     const GameInfo* gi_c = nullptr;
-                    if (in_favorites && idx < (int)favorites_list.size())
-                        gi_c = find_game_info_for_system(favorites_list[idx].system, dn_key);
-                    else if (in_lastplayed && idx < (int)lastplayed_list.size())
-                        gi_c = find_game_info_for_system(lastplayed_list[idx].system, dn_key);
-                    else if (in_collection && collection_games.count(current_collection_name) && idx < (int)collection_games.at(current_collection_name).size()) {
+                    if (idx < (int)items.size() && !items[idx].game_id.empty()) {
                         std::string col_sys, col_fn;
-                        split_game_id(collection_games.at(current_collection_name)[idx], col_sys, col_fn);
+                        split_game_id(items[idx].game_id, col_sys, col_fn);
                         size_t d = col_fn.rfind('.'); if (d != std::string::npos) col_fn = col_fn.substr(0, d);
                         gi_c = find_game_info_for_system(col_sys, col_fn);
                     } else
@@ -6935,9 +8316,7 @@ int main(int, char* argv[]) {
                     float scale = 0.6f;
                     int draw_w = (int)(fav_w * scale), draw_h = (int)(fav_h * scale);
                     int icon_x = 32;
-                    int text_size = 24;
-                    int text_y = yp + (row_height - text_size) / 2 + 2;
-                    int icon_y = text_y + (text_size - draw_h) / 2;
+                    int icon_y = yp + (row_height - draw_h) / 2;
                     if (theme_cfg.shadows) {
                         SDL_SetTextureColorMod(favorite_tex, theme_cfg.shadow_color.r, theme_cfg.shadow_color.g, theme_cfg.shadow_color.b);
                         SDL_SetTextureAlphaMod(favorite_tex, (Uint8)theme_cfg.shadow_alpha);
@@ -6951,9 +8330,7 @@ int main(int, char* argv[]) {
                 } else if (icons_tex) {
                     SDL_Rect si = { items[idx].is_dir ? 0 : 56, 0, 56, 56 };
                     int icon_size = 40;
-                    int text_size = 24;
-                    int text_y = yp + (row_height - text_size) / 2 + 2;
-                    int icon_y = text_y + (text_size - icon_size) / 2;
+                    int icon_y = yp + (row_height - icon_size) / 2;
                     SDL_Rect di = { 24, icon_y, icon_size, icon_size };
                     if (theme_cfg.shadows) {
                         SDL_SetTextureColorMod(icons_tex, theme_cfg.shadow_color.r, theme_cfg.shadow_color.g, theme_cfg.shadow_color.b);
@@ -6969,7 +8346,7 @@ int main(int, char* argv[]) {
                 // Text
                 int lim_w = theme_cfg.list_text_max_w;
                 int text_size = theme_cfg.font_large;
-                int text_y = yp + (row_height - text_size) / 2 + 2;
+                int text_y = yp + (row_height - font_large_h) / 2;
                 std::string f_dn = dn;
                 if (idx != selected) {
                     int tw = 0;
@@ -7010,7 +8387,7 @@ int main(int, char* argv[]) {
                 if (has_cheevos && trophy_tex) {
                     int tsz = text_size;
                     int tx = text_x + drawn_tw + 6;
-                    int ty = text_y;
+                    int ty = yp + (row_height - tsz) / 2;
                     SDL_Rect tr = { tx, ty, tsz, tsz };
                     SDL_RenderCopy(renderer, trophy_tex, NULL, &tr);
                 }
@@ -7049,6 +8426,34 @@ int main(int, char* argv[]) {
             struct HelpEntry { std::string btn; std::string label; bool is_rect; };
             std::vector<HelpEntry> entries;
             if (in_games) {
+                // Indicatore sort/filter attivo
+                if (sf_is_active() && (!current_gamelist.empty() || in_favorites || in_lastplayed || in_collection)) {
+                    std::string sf_hint;
+                    static const char* sort_short[] = {
+                        "A-Z","Z-A","Year(old)","Year(new)",
+                        "Rat↓","Rat↑","GRat↓","GRat↑","Genre","Play Order"
+                    };
+                    if (sf_sort_mode != 0 && sf_sort_mode < 10)
+                        sf_hint += std::string("\xe2\x86\x91 ") + sort_short[sf_sort_mode];
+                    if (!sf_filter_genre.empty())     { if (!sf_hint.empty()) sf_hint += "  |  "; sf_hint += "Genre: " + sf_filter_genre; }
+                    if (!sf_filter_developer.empty()) { if (!sf_hint.empty()) sf_hint += "  |  "; sf_hint += "Dev: " + sf_filter_developer; }
+                    if (!sf_filter_publisher.empty()) { if (!sf_hint.empty()) sf_hint += "  |  "; sf_hint += "Pub: " + sf_filter_publisher; }
+                    if (sf_filter_min_rating > 0)     { if (!sf_hint.empty()) sf_hint += "  |  "; sf_hint += "★≥" + std::to_string(sf_filter_min_rating); }
+                    if (sf_filter_min_grating > 0)    { if (!sf_hint.empty()) sf_hint += "  |  "; sf_hint += "GR≥" + std::to_string(sf_filter_min_grating * 20) + "%"; }
+                    if (sf_filter_cheevos)            { if (!sf_hint.empty()) sf_hint += "  |  "; sf_hint += "RA"; }
+                    if (!sf_hint.empty() && font_16) {
+                        SDL_Surface* sf_s = ttf_render_text_blended(font_16, sf_hint.c_str(), theme_cfg.menu_highlight);
+                        if (sf_s) {
+                            SDL_Texture* sf_t = SDL_CreateTextureFromSurface(renderer, sf_s);
+                            if (sf_t) {
+                                SDL_Rect sf_r = {(screen_w - sf_s->w) / 2, screen_h - 48, sf_s->w, sf_s->h};
+                                SDL_RenderCopy(renderer, sf_t, NULL, &sf_r);
+                                SDL_DestroyTexture(sf_t);
+                            }
+                            SDL_FreeSurface(sf_s);
+                        }
+                    }
+                }
                 entries = {{"U", " ", false}, {"D", "Navigate  ", false},
                            {"L", " ", false}, {"R", "Change System  ", false},
                            {"A", "Select  ", false}, {"B", "Back  ", false}, {"Y", "Favorite  ", false},
@@ -7242,6 +8647,7 @@ int main(int, char* argv[]) {
                 int dh = (int)(mh * s);
                 int mx = theme_cfg.marquee_x;
                 int my = theme_cfg.marquee_y;
+                if (theme_cfg.marquee_anchor_center) { mx -= dw / 2; my -= dh / 2; }
                 if (theme_cfg.marquee_shadow && theme_cfg.shadows) {
                     Uint8 sh_alpha = (Uint8)theme_cfg.marquee_shadow_alpha;
                     SDL_SetTextureColorMod(marquee_tex, theme_cfg.shadow_color.r, theme_cfg.shadow_color.g, theme_cfg.shadow_color.b);
@@ -7300,6 +8706,8 @@ int main(int, char* argv[]) {
                 { "L",            "L1 (-10 games)" },
                 { "R",            "R1 (+10 games)" },
                 { "Shift",        "SELECT (Theme Selector)" },
+                { "S",            "START (Collections)" },
+                { "Tab",          "Sort / Filter" },
                 { "Q",            "Quit" },
                 { "F1",           "Toggle this help" },
                 { "F5",           "Reload theme.cfg" },
