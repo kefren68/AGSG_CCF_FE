@@ -156,17 +156,24 @@ std::set<std::string> hdmi_supported_systems;
 void load_hdmi_systems() {
     hdmi_supported_systems.clear();
     std::ifstream f("/sdcard/start_local_sd_HDMI.sh");
+    if (!f) f.open("/mnt/sdcard/start_local_sd_HDMI.sh");
     if (!f) return;
-    // Parse case patterns like:  /sdcard/games/<name>/*) or /sdcard/games/<name>/<sub>/*)
-    // Extract the first path component after /sdcard/games/ as the system folder name.
-    const std::string marker = "/sdcard/games/";
+    // Parse case patterns like:  /sdcard/games/<name>/*) or /mnt/sdcard/games/<name>/*)
+    // Extract the first path component after /games/ as the system folder name.
+    const std::string marker1 = "/sdcard/games/";
+    const std::string marker2 = "/mnt/sdcard/games/";
     std::string line;
     while (std::getline(f, line)) {
         std::string low = line;
         std::transform(low.begin(), low.end(), low.begin(), ::tolower);
-        size_t pos = low.find(marker);
+        size_t pos = low.find(marker1);
+        size_t mlen = marker1.size();
+        if (pos == std::string::npos) {
+            pos = low.find(marker2);
+            mlen = marker2.size();
+        }
         if (pos == std::string::npos) continue;
-        pos += marker.size();
+        pos += mlen;
         size_t end = low.find('/', pos);
         if (end == std::string::npos) continue;
         std::string sysname = low.substr(pos, end - pos);
@@ -7300,10 +7307,16 @@ int main(int, char* argv[]) {
                             SDL_Delay(1000); // attendi 1 secondo prima di lanciare il gioco
 #endif
                             {
-                                const bool hdmi_script_exists = (access("/sdcard/start_local_sd_HDMI.sh", F_OK) == 0);
-                                const std::string launch_script = (hdmi_connected && hdmi_script_exists)
+                                const bool hdmi_script_exists = (access("/sdcard/start_local_sd_HDMI.sh", F_OK) == 0) || (access("/mnt/sdcard/start_local_sd_HDMI.sh", F_OK) == 0);
+                                const std::string hdmi_script_path = (access("/sdcard/start_local_sd_HDMI.sh", F_OK) == 0)
                                     ? "sh /sdcard/start_local_sd_HDMI.sh"
-                                    : "sh /sdcard/start_local_sd.sh";
+                                    : "sh /mnt/sdcard/start_local_sd_HDMI.sh";
+                                const std::string normal_script_path = (access("/sdcard/start_local_sd.sh", F_OK) == 0)
+                                    ? "sh /sdcard/start_local_sd.sh"
+                                    : ((access("/mnt/sdcard/start_local_sd.sh", F_OK) == 0) ? "sh /mnt/sdcard/start_local_sd.sh" : "sh /sdcard/start_local_sd.sh");
+                                const std::string launch_script = (hdmi_connected && hdmi_script_exists)
+                                    ? hdmi_script_path
+                                    : normal_script_path;
                             if ((in_favorites || in_lastplayed || in_collection) && !items[selected].game_id.empty()) {
                                 // Lancio da FAVORITES / LAST PLAYED / COLLECTION
                                 // items[selected].game_id è sempre corretto anche dopo sort/filter.
@@ -7355,7 +7368,10 @@ int main(int, char* argv[]) {
                             // Restore the launcher LED layout immediately on return.
                             // The low-battery blink thread will be restarted automatically
                             // by the battery monitoring loop on the next tick if needed.
-                            system("/sdcard/bin/gsgparm -k 21 -0 all -1 dpad,A,B,X,Y,1,3,7,9,L1,R1 2>/dev/null");
+                            if (access("/sdcard/bin/gsgparm", F_OK) == 0)
+                                system("/sdcard/bin/gsgparm -k 21 -0 all -1 dpad,A,B,X,Y,1,3,7,9,L1,R1 2>/dev/null");
+                            else
+                                system("/mnt/sdcard/bin/gsgparm -k 21 -0 all -1 dpad,A,B,X,Y,1,3,7,9,L1,R1 2>/dev/null");
                             // --------------------------------
 
                             // --- RIPRISTINO DISPLAY POST-GIOCO ---
