@@ -14,16 +14,21 @@ echo "🔨 Building Gamestation Go Launcher..."
 echo "📁 Project: $PROJECT_DIR"
 
 # Check if Docker image exists
-if ! sudo docker image inspect "$DOCKER_IMAGE" > /dev/null 2>&1; then
-    echo "❌ Error: Docker image '$DOCKER_IMAGE' not found!"
-    echo "💡 Build the image with: docker build -t gamestation-sdk-armhf ."
-    exit 1
+DOCKER_CMD="docker"
+if ! docker image inspect "$DOCKER_IMAGE" > /dev/null 2>&1; then
+    if sudo -n docker image inspect "$DOCKER_IMAGE" > /dev/null 2>&1; then
+        DOCKER_CMD="sudo docker"
+    else
+        echo "❌ Error: Docker image '$DOCKER_IMAGE' not found!"
+        echo "💡 Build the image with: docker build -t gamestation-sdk-armhf ."
+        exit 1
+    fi
 fi
 
 # Build
 BUILD_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 
-sudo docker run --rm -v "$PROJECT_DIR":/build "$DOCKER_IMAGE" \
+$DOCKER_CMD run --rm -v "$PROJECT_DIR":/build "$DOCKER_IMAGE" \
   bash -c "cd /build && \
     arm-linux-gnueabihf-g++ $SOURCE_FILE -o $OUTPUT_BINARY \
     \"-DBUILD_TIMESTAMP=\\\"$BUILD_TS\\\"\" \
@@ -48,11 +53,16 @@ if [ -f "$PROJECT_DIR/$OUTPUT_BINARY" ]; then
     echo "🎯 Architecture: $ARCH EABI5 NEON"
     echo "⚡ Optimizations: O3 LTO ffast-math neon32"
     echo ""
-    echo "🖥️  Building native preview binary..."
-    bash "$PROJECT_DIR/build_native.sh"
-    echo ""
-    echo "🖥️  Building cross-platform preview binary..."
-    bash "$PROJECT_DIR/build_preview.sh"
+    if [ "$1" = "--with-preview" ]; then
+        if [ -f "$PROJECT_DIR/build_native.sh" ]; then
+            echo "🖥️  Building native preview binary..."
+            bash "$PROJECT_DIR/build_native.sh" || true
+        fi
+        if [ -f "$PROJECT_DIR/build_preview.sh" ]; then
+            echo "🖥️  Building cross-platform preview binary..."
+            bash "$PROJECT_DIR/build_preview.sh" || true
+        fi
+    fi
     exit 0
 else
     echo ""
