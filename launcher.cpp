@@ -149,6 +149,197 @@ bool detect_hdmi() {
     return s == "connected";
 }
 
+// Shell escaping helper
+static std::string escape_shell_arg(const std::string& str) {
+    std::string res = "\"";
+    for (char c : str) {
+        if (c == '"' || c == '\\' || c == '$' || c == '`') {
+            res += '\\';
+        }
+        res += c;
+    }
+    res += "\"";
+    return res;
+}
+
+// Controller normalization & external gamepad/hat support
+static std::vector<SDL_Event>          s_pending_joy_events;
+static std::map<SDL_JoystickID, Uint8> s_hat_states;
+static std::map<SDL_JoystickID, int>   s_axis_x_states;
+static std::map<SDL_JoystickID, int>   s_axis_y_states;
+static std::map<SDL_JoystickID, bool>  s_builtin_joy_cache;
+
+static void queue_fake_joy_button(Uint32 type, Uint8 button) {
+    SDL_Event fake;
+    SDL_memset(&fake, 0, sizeof(fake));
+    fake.type = type;
+    fake.jbutton.which = (SDL_JoystickID)-1;
+    fake.jbutton.button = button;
+    fake.jbutton.state = (type == SDL_JOYBUTTONDOWN) ? SDL_PRESSED : SDL_RELEASED;
+    s_pending_joy_events.push_back(fake);
+}
+
+static int map_external_joystick_button(int raw_btn) {
+    if (raw_btn >= 28) return raw_btn; // Internal codes (28=Home, 29=Up, 30=Left, 31=Right, 32=Down)
+    switch (raw_btn) {
+        case 0:  return 1;  // USB A -> Action 1 (A / Confirm / Enter)
+        case 1:  return 3;  // USB B -> Action 3 (B / Back / Cancel)
+        case 2:  return 0;  // USB X -> Action 0 (X / Search / Random)
+        case 3:  return 4;  // USB Y -> Action 4 (Y / Favorite)
+        case 4:  return 2;  // USB L1 -> Action 2 (L1 / Page Up / Prev Tab)
+        case 5:  return 5;  // USB R1 -> Action 5 (R1 / Page Down / Next Tab)
+        case 6:  return 6;  // USB Select / Back -> Action 6 (Select / Theme Menu)
+        case 7:  return 7;  // USB Start -> Action 7 (Start / Collections)
+        case 8:  return 28; // USB Home / Guide / Xbox Button -> Action 28 (Home)
+        case 9:  return 28; // Thumbstick click / secondary Guide
+        case 10: return 28; // Guide button on alternate gamepads
+        case 12: return 28; // PS button
+        default: return raw_btn;
+    }
+}
+
+static bool is_builtin_agpio(SDL_JoystickID jid) {
+    if (jid == (SDL_JoystickID)-1) return false;
+    auto it = s_builtin_joy_cache.find(jid);
+    if (it != s_builtin_joy_cache.end()) return it->second;
+
+    SDL_Joystick* joy = SDL_JoystickFromInstanceID(jid);
+    if (!joy) {
+        for (int i = 0; i < SDL_NumJoysticks(); i++) {
+            SDL_Joystick* j = SDL_JoystickOpen(i);
+            if (j && SDL_JoystickInstanceID(j) == jid) {
+                joy = j;
+                break;
+            }
+        }
+    }
+    bool is_builtin = false;
+    if (joy) {
+        const char* cname = SDL_JoystickName(joy);
+        std::string name = cname ? cname : "";
+        for (char& c : name) c = (char)tolower((unsigned char)c);
+        if (name.find("agpio") != std::string::npos || name.find("gpio") != std::string::npos) {
+            is_builtin = true;
+        } else {
+            int hats = SDL_JoystickNumHats(joy);
+            int axes = SDL_JoystickNumAxes(joy);
+            int btns = SDL_JoystickNumButtons(joy);
+            // Built-in console controller on GSG has 0 hats, 0 axes, and >= 28 buttons
+            if (hats == 0 && axes == 0 && btns >= 28) {
+                is_builtin = true;
+            }
+        }
+    }
+    s_builtin_joy_cache[jid] = is_builtin;
+    return is_builtin;
+}
+
+static int launcher_poll_event(SDL_Event* ev) {
+    if (!s_pending_joy_events.empty()) {
+        *ev = s_pending_joy_events.front();
+        s_pending_joy_events.erase(s_pending_joy_events.begin());
+        return 1;
+    }
+
+    while (SDL_PollEvent(ev)) {
+        if (ev->type == SDL_JOYDEVICEADDED) {
+            SDL_Joystick* j = SDL_JoystickOpen(ev->jdevice.which);
+            if (j) is_builtin_agpio(SDL_JoystickInstanceID(j));
+            return 1;
+        }
+        if (ev->type == SDL_JOYDEVICEREMOVED) {
+            s_hat_states.erase(ev->jdevice.which);
+            s_axis_x_states.erase(ev->jdevice.which);
+            s_axis_y_states.erase(ev->jdevice.which);
+            s_builtin_joy_cache.erase(ev->jdevice.which);
+            return 1;
+        }
+        if (ev->type == SDL_JOYHATMOTION) {
+            SDL_JoystickID jid = ev->jhat.which;
+            Uint8 old_val = s_hat_states[jid];
+            Uint8 new_val = ev->jhat.value;
+            s_hat_states[jid] = new_val;
+
+            // Up (button 29)
+            if (!(old_val & SDL_HAT_UP) && (new_val & SDL_HAT_UP))        queue_fake_joy_button(SDL_JOYBUTTONDOWN, 29);
+            else if ((old_val & SDL_HAT_UP) && !(new_val & SDL_HAT_UP)) queue_fake_joy_button(SDL_JOYBUTTONUP, 29);
+
+            // Down (button 32)
+            if (!(old_val & SDL_HAT_DOWN) && (new_val & SDL_HAT_DOWN))        queue_fake_joy_button(SDL_JOYBUTTONDOWN, 32);
+            else if ((old_val & SDL_HAT_DOWN) && !(new_val & SDL_HAT_DOWN)) queue_fake_joy_button(SDL_JOYBUTTONUP, 32);
+
+            // Left (button 30)
+            if (!(old_val & SDL_HAT_LEFT) && (new_val & SDL_HAT_LEFT))        queue_fake_joy_button(SDL_JOYBUTTONDOWN, 30);
+            else if ((old_val & SDL_HAT_LEFT) && !(new_val & SDL_HAT_LEFT)) queue_fake_joy_button(SDL_JOYBUTTONUP, 30);
+
+            // Right (button 31)
+            if (!(old_val & SDL_HAT_RIGHT) && (new_val & SDL_HAT_RIGHT))        queue_fake_joy_button(SDL_JOYBUTTONDOWN, 31);
+            else if ((old_val & SDL_HAT_RIGHT) && !(new_val & SDL_HAT_RIGHT)) queue_fake_joy_button(SDL_JOYBUTTONUP, 31);
+
+            if (!s_pending_joy_events.empty()) {
+                *ev = s_pending_joy_events.front();
+                s_pending_joy_events.erase(s_pending_joy_events.begin());
+                return 1;
+            }
+            continue;
+        }
+        if (ev->type == SDL_JOYAXISMOTION) {
+            SDL_JoystickID jid = ev->jaxis.which;
+            int axis = ev->jaxis.axis;
+            Sint16 val = ev->jaxis.value;
+
+            // Axis 0 (or 6): Left / Right
+            if (axis == 0 || axis == 6) {
+                int cur_x = 0;
+                if (val < -16000) cur_x = -1;
+                else if (val > 16000) cur_x = 1;
+
+                int old_x = s_axis_x_states[jid];
+                if (cur_x != old_x) {
+                    s_axis_x_states[jid] = cur_x;
+                    if (old_x == -1) queue_fake_joy_button(SDL_JOYBUTTONUP, 30);
+                    if (old_x == 1)  queue_fake_joy_button(SDL_JOYBUTTONUP, 31);
+                    if (cur_x == -1) queue_fake_joy_button(SDL_JOYBUTTONDOWN, 30);
+                    if (cur_x == 1)  queue_fake_joy_button(SDL_JOYBUTTONDOWN, 31);
+                }
+            }
+            // Axis 1 (or 7): Up / Down
+            else if (axis == 1 || axis == 7) {
+                int cur_y = 0;
+                if (val < -16000) cur_y = -1;
+                else if (val > 16000) cur_y = 1;
+
+                int old_y = s_axis_y_states[jid];
+                if (cur_y != old_y) {
+                    s_axis_y_states[jid] = cur_y;
+                    if (old_y == -1) queue_fake_joy_button(SDL_JOYBUTTONUP, 29);
+                    if (old_y == 1)  queue_fake_joy_button(SDL_JOYBUTTONUP, 32);
+                    if (cur_y == -1) queue_fake_joy_button(SDL_JOYBUTTONDOWN, 29);
+                    if (cur_y == 1)  queue_fake_joy_button(SDL_JOYBUTTONDOWN, 32);
+                }
+            }
+            if (!s_pending_joy_events.empty()) {
+                *ev = s_pending_joy_events.front();
+                s_pending_joy_events.erase(s_pending_joy_events.begin());
+                return 1;
+            }
+            continue;
+        }
+        if (ev->type == SDL_JOYBUTTONDOWN || ev->type == SDL_JOYBUTTONUP) {
+            if (ev->jbutton.which != (SDL_JoystickID)-1) {
+                if (!is_builtin_agpio(ev->jbutton.which)) {
+                    ev->jbutton.button = (Uint8)map_external_joystick_button(ev->jbutton.button);
+                }
+            }
+            return 1;
+        }
+        return 1;
+    }
+    return 0;
+}
+#define SDL_PollEvent launcher_poll_event
+
+
 // Systems supported in HDMI mode — loaded at runtime from /sdcard/start_local_sd_HDMI
 // (one folder name per line, case-insensitive; empty file = no systems shown)
 std::set<std::string> hdmi_supported_systems;
@@ -156,17 +347,24 @@ std::set<std::string> hdmi_supported_systems;
 void load_hdmi_systems() {
     hdmi_supported_systems.clear();
     std::ifstream f("/sdcard/start_local_sd_HDMI.sh");
+    if (!f) f.open("/mnt/sdcard/start_local_sd_HDMI.sh");
     if (!f) return;
-    // Parse case patterns like:  /sdcard/games/<name>/*) or /sdcard/games/<name>/<sub>/*)
-    // Extract the first path component after /sdcard/games/ as the system folder name.
-    const std::string marker = "/sdcard/games/";
+    // Parse case patterns like:  /sdcard/games/<name>/*) or /mnt/sdcard/games/<name>/*)
+    // Extract the first path component after /games/ as the system folder name.
+    const std::string marker1 = "/sdcard/games/";
+    const std::string marker2 = "/mnt/sdcard/games/";
     std::string line;
     while (std::getline(f, line)) {
         std::string low = line;
         std::transform(low.begin(), low.end(), low.begin(), ::tolower);
-        size_t pos = low.find(marker);
+        size_t pos = low.find(marker1);
+        size_t mlen = marker1.size();
+        if (pos == std::string::npos) {
+            pos = low.find(marker2);
+            mlen = marker2.size();
+        }
         if (pos == std::string::npos) continue;
-        pos += marker.size();
+        pos += mlen;
         size_t end = low.find('/', pos);
         if (end == std::string::npos) continue;
         std::string sysname = low.substr(pos, end - pos);
@@ -1433,7 +1631,8 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
         sysinfo.ip   = rdcmd("ip route get 1 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i==\"src\") print $(i+1)}' | head -1");
         sysinfo.ssid = rdcmd("iwgetid wlan0 -r 2>/dev/null");
         struct statvfs sv;
-        if (statvfs("/sdcard", &sv) == 0) {
+        const char* sd_stat_path = (statvfs("/sdcard", &sv) == 0) ? "/sdcard" : ((statvfs("/mnt/sdcard", &sv) == 0) ? "/mnt/sdcard" : nullptr);
+        if (sd_stat_path && statvfs(sd_stat_path, &sv) == 0) {
             char buf[32];
             snprintf(buf, sizeof(buf), "%.1f GB", (double)sv.f_blocks * sv.f_frsize / 1e9);
             sysinfo.sd_total = buf;
@@ -1464,6 +1663,7 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
             sysinfo.uptime = buf;
         } else sysinfo.uptime = "N/A";
         sysinfo.sd_card_version = rdfile("/mnt/sdcard/sd_card_version");
+        if (sysinfo.sd_card_version.empty()) sysinfo.sd_card_version = rdfile("/sdcard/sd_card_version");
         if (sysinfo.sd_card_version.empty()) sysinfo.sd_card_version = "N/A";
 #else
         sysinfo.ip              = "192.168.1.100";
@@ -1670,6 +1870,7 @@ bool show_theme_selector(SDL_Renderer* renderer, const std::string& font_path,
                     SDL_Event fake;
                     SDL_memset(&fake, 0, sizeof(fake));
                     fake.type = SDL_JOYBUTTONDOWN;
+                    fake.jbutton.which = (SDL_JoystickID)-1;
                     fake.jbutton.button = (Uint8)vbtn;
                     SDL_PushEvent(&fake);
                 }
@@ -2277,6 +2478,7 @@ static int show_search_menu(SDL_Renderer* renderer, const std::string& font_path
                 if (vbtn >= 0 && SDL_GetTicks() >= next_input) {
                     SDL_Event fake; SDL_memset(&fake, 0, sizeof(fake));
                     fake.type = SDL_JOYBUTTONDOWN;
+                    fake.jbutton.which = (SDL_JoystickID)-1;
                     fake.jbutton.button = (Uint8)vbtn;
                     SDL_PushEvent(&fake);
                 }
@@ -3553,7 +3755,7 @@ std::vector<LastPlayedEntry> lastplayed_list;
 
 void load_lastplayed() {
     lastplayed_list.clear();
-    std::ifstream f("/sdcard/bin/AGSG_CCF_FE/lastplayed.txt");
+    std::ifstream f(base_p + "lastplayed.txt");
     if (!f) return;
     std::string line;
     while (std::getline(f, line)) {
@@ -3571,7 +3773,7 @@ void load_lastplayed() {
 }
 
 void save_lastplayed() {
-    std::ofstream f("/sdcard/bin/AGSG_CCF_FE/lastplayed.txt");
+    std::ofstream f(base_p + "lastplayed.txt");
     for (const auto& lp : lastplayed_list)
         f << lp.game_id << '\t' << lp.system << '\t' << lp.display_name << '\n';
 }
@@ -4788,6 +4990,7 @@ static UpdateCheckResult check_for_update() {
     const char* TMP_VERSION_FILE   = "/tmp/gsg_remote_version.txt";
 
     std::ifstream lf(LOCAL_VERSION_FILE);
+    if (!lf) lf.open("/sdcard/sd_card_version");
     if (!lf) return res;
     std::string local_content((std::istreambuf_iterator<char>(lf)), std::istreambuf_iterator<char>());
     int lmaj, lmin, lpat;
@@ -5029,7 +5232,10 @@ static bool run_update_apply_script_with_progress(SDL_Renderer* renderer, const 
     ::remove("/tmp/update/progress");
     ::remove("/tmp/update/phase");
     ::remove("/tmp/update/apply_progress");
-    pid_t pid = spawn_background_sh("/mnt/sdcard/bin/download_updates.sh");
+    const char* up_script = (access("/mnt/sdcard/bin/download_updates.sh", F_OK) == 0)
+        ? "/mnt/sdcard/bin/download_updates.sh"
+        : "/sdcard/bin/download_updates.sh";
+    pid_t pid = spawn_background_sh(up_script);
     if (pid <= 0) return false;
 
     long long downloaded = 0, total = 0;
@@ -5061,7 +5267,10 @@ static bool run_two_gamepad_patch_script() {
 #ifdef NATIVE_BASE_PATH
     return false;
 #else
-    int rc = system("sh /mnt/sdcard/bin/download_two_gamepad2_patch.sh");
+    const char* patch_cmd = (access("/mnt/sdcard/bin/download_two_gamepad2_patch.sh", F_OK) == 0)
+        ? "sh /mnt/sdcard/bin/download_two_gamepad2_patch.sh"
+        : "sh /sdcard/bin/download_two_gamepad2_patch.sh";
+    int rc = system(patch_cmd);
     return rc == 0;
 #endif
 }
@@ -5102,7 +5311,7 @@ static bool show_message_dialog(SDL_Renderer* renderer, const std::string& font_
                 }
                 if (vbtn >= 0 && SDL_GetTicks() >= next_input) {
                     SDL_Event fake; SDL_memset(&fake, 0, sizeof(fake));
-                    fake.type = SDL_JOYBUTTONDOWN; fake.jbutton.button = (Uint8)vbtn;
+                    fake.type = SDL_JOYBUTTONDOWN; fake.jbutton.which = (SDL_JoystickID)-1; fake.jbutton.button = (Uint8)vbtn;
                     SDL_PushEvent(&fake);
                 }
             }
@@ -5226,6 +5435,7 @@ void run_update_flow(SDL_Renderer* renderer, const std::string& font_path, SDL_T
     // own, since it can also be triggered outside the frontend).
     if (chk.kind == UpdateKind::FULL) {
         double free_gb = free_space_gb("/sdcard");
+        if (free_gb < 0.0) free_gb = free_space_gb("/mnt/sdcard");
         if (free_gb >= 0.0 && free_gb < 2.0) {
             char buf[64]; snprintf(buf, sizeof(buf), "%.2f GB available.", free_gb);
             show_message_dialog(renderer, font_path, bg_tex,
@@ -5357,6 +5567,7 @@ void show_collection_picker(SDL_Renderer* renderer, const std::string& font_path
                     SDL_Event fake;
                     SDL_memset(&fake, 0, sizeof(fake));
                     fake.type = SDL_JOYBUTTONDOWN;
+                    fake.jbutton.which = (SDL_JoystickID)-1;
                     fake.jbutton.button = (Uint8)vbtn;
                     SDL_PushEvent(&fake);
                 }
@@ -5521,6 +5732,10 @@ int main(int, char* argv[]) {
     img_p  = base_p + "images/";
 #else
     (void)argv;
+    if (access("/sdcard/bin/AGSG_CCF_FE", F_OK) != 0 && access("/mnt/sdcard/bin/AGSG_CCF_FE", F_OK) == 0) {
+        base_p = "/mnt/sdcard/bin/AGSG_CCF_FE/";
+        img_p  = base_p + "images/";
+    }
 #endif
 #ifdef BUILD_TIMESTAMP
     fprintf(stderr, "Launcher build: %s\n", BUILD_TIMESTAMP);
@@ -5832,7 +6047,8 @@ int main(int, char* argv[]) {
     if (roms_base.empty()) roms_base = sd_root + "Games";
 #else
     std::string roms_base = find_subdir_ignore_case("/sdcard", "Games");
-    if (roms_base.empty()) roms_base = "/sdcard/Games"; // fallback
+    if (roms_base.empty()) roms_base = find_subdir_ignore_case("/mnt/sdcard", "Games");
+    if (roms_base.empty()) roms_base = (access("/mnt/sdcard", F_OK) == 0) ? "/mnt/sdcard/Games" : "/sdcard/Games";
 #endif
     gamelist_roms_base = roms_base;
     std::string current_rel = "", current_sys = "";
@@ -6665,6 +6881,7 @@ int main(int, char* argv[]) {
                     SDL_Event fake;
                     SDL_memset(&fake, 0, sizeof(fake));
                     fake.type = SDL_JOYBUTTONDOWN;
+                    fake.jbutton.which = (SDL_JoystickID)-1;
                     fake.jbutton.button = (Uint8)vbtn;
                     SDL_PushEvent(&fake);
                 }
@@ -6873,6 +7090,7 @@ int main(int, char* argv[]) {
                                 // Lancia il gioco direttamente (simula A: inietta evento joystick)
                                 SDL_Event fake; SDL_memset(&fake, 0, sizeof(fake));
                                 fake.type = SDL_JOYBUTTONDOWN;
+                                fake.jbutton.which = (SDL_JoystickID)-1;
                                 fake.jbutton.button = 1; // A
                                 SDL_PushEvent(&fake);
                                 input_delay = 0; // annulla il delay così l'evento viene processato subito
@@ -7300,10 +7518,17 @@ int main(int, char* argv[]) {
                             SDL_Delay(1000); // attendi 1 secondo prima di lanciare il gioco
 #endif
                             {
-                                const bool hdmi_script_exists = (access("/sdcard/start_local_sd_HDMI.sh", F_OK) == 0);
-                                const std::string launch_script = (hdmi_connected && hdmi_script_exists)
+                                hdmi_connected = detect_hdmi();
+                                const bool hdmi_script_exists = (access("/sdcard/start_local_sd_HDMI.sh", F_OK) == 0) || (access("/mnt/sdcard/start_local_sd_HDMI.sh", F_OK) == 0);
+                                const std::string hdmi_script_path = (access("/sdcard/start_local_sd_HDMI.sh", F_OK) == 0)
                                     ? "sh /sdcard/start_local_sd_HDMI.sh"
-                                    : "sh /sdcard/start_local_sd.sh";
+                                    : "sh /mnt/sdcard/start_local_sd_HDMI.sh";
+                                const std::string normal_script_path = (access("/sdcard/start_local_sd.sh", F_OK) == 0)
+                                    ? "sh /sdcard/start_local_sd.sh"
+                                    : ((access("/mnt/sdcard/start_local_sd.sh", F_OK) == 0) ? "sh /mnt/sdcard/start_local_sd.sh" : "sh /sdcard/start_local_sd.sh");
+                                const std::string launch_script = (hdmi_connected && hdmi_script_exists)
+                                    ? hdmi_script_path
+                                    : normal_script_path;
                             if ((in_favorites || in_lastplayed || in_collection) && !items[selected].game_id.empty()) {
                                 // Lancio da FAVORITES / LAST PLAYED / COLLECTION
                                 // items[selected].game_id è sempre corretto anche dopo sort/filter.
@@ -7322,7 +7547,7 @@ int main(int, char* argv[]) {
                                 }
                                 std::cerr << "[DEBUG] Lancio " << (in_favorites ? "FAVORITES" : in_lastplayed ? "LAST PLAYED" : "COLLECTION") << ": " << full_path << std::endl;
                                 add_to_lastplayed(gid, lp_sys, lp_disp);
-                                system((launch_script + " \"\" \"\" \"\" \"" + full_path + "\"").c_str());
+                                system((launch_script + " \"\" \"\" \"\" " + escape_shell_arg(full_path)).c_str());
                             } else {
                                 // Lancio dal sistema normale
                                 std::string full_path = roms_base + current_rel + "/" + items[selected].name;
@@ -7334,7 +7559,7 @@ int main(int, char* argv[]) {
                                 const GameInfo* lp_gi = find_game_info(lp_disp);
                                 if (lp_gi && !lp_gi->name.empty()) lp_disp = lp_gi->name;
                                 add_to_lastplayed(lp_game_id, current_sys, lp_disp);
-                                system((launch_script + " \"\" \"\" \"\" \"" + full_path + "\"").c_str());
+                                system((launch_script + " \"\" \"\" \"\" " + escape_shell_arg(full_path)).c_str());
                             }
                             }
 
@@ -7355,7 +7580,10 @@ int main(int, char* argv[]) {
                             // Restore the launcher LED layout immediately on return.
                             // The low-battery blink thread will be restarted automatically
                             // by the battery monitoring loop on the next tick if needed.
-                            system("/sdcard/bin/gsgparm -k 21 -0 all -1 dpad,A,B,X,Y,1,3,7,9,L1,R1 2>/dev/null");
+                            if (access("/sdcard/bin/gsgparm", F_OK) == 0)
+                                system("/sdcard/bin/gsgparm -k 21 -0 all -1 dpad,A,B,X,Y,1,3,7,9,L1,R1 2>/dev/null");
+                            else
+                                system("/mnt/sdcard/bin/gsgparm -k 21 -0 all -1 dpad,A,B,X,Y,1,3,7,9,L1,R1 2>/dev/null");
                             // --------------------------------
 
                             // --- RIPRISTINO DISPLAY POST-GIOCO ---

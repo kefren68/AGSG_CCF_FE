@@ -594,4 +594,25 @@ THEME MENU (SELECT)
 
 
 
+21. CONTROLLER CONFIGURATION & RECOVERY NOTES (vrwallace)
 
+- LAUNCHER CONTROLLER INITIALIZATION (launcher.sh):
+  The launcher runner script launcher.sh must invoke gsgparm directly rather than
+  relying solely on manage_leds.sh in order to initialize the console hardware
+  buttons and D-Pad into joystick mode:
+    [ -x /mnt/sdcard/bin/gsgparm ] && /mnt/sdcard/bin/gsgparm -0 all -1 A,B,X,Y,dpad,L1,R1,1,3,7,9 -k 18
+    [ -x /sdcard/bin/gsgparm ] && /sdcard/bin/gsgparm -0 all -1 A,B,X,Y,dpad,L1,R1,1,3,7,9 -k 18
+  Without 'gsgparm -k 18', the handheld controls will not respond in the launcher menu.
+
+- RETROARCH HANDHELD CONTROLS (retroarch.cfg & handheld_mode.cfg):
+  For standard handheld play using the built-in console controls:
+    input_player1_joypad_index = "0"
+  If set to "2" (often caused by external multi-gamepad patches), RetroArch ignores
+  the built-in controls and listens for a 3rd joypad, causing controls to appear dead in games.
+
+- OTA UPDATE SELF-HEALING:
+  Keep a persistent copy of your custom compiled launcher as:
+    bin/AGSG_CCF_FE/launcher.vrwallace
+  The self-healing launcher.sh runner will automatically detect if an on-device Wi-Fi
+  update (download_updates.zip) overwrote launcher with the stock release, and restore
+  launcher.vrwallace automatically on boot.

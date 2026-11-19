@@ -1,5 +1,5 @@
 # Dockerfile for gamestation-sdk-armhf with ffmpeg dev libraries
-FROM debian:bullseye
+FROM debian:bookworm
 
 RUN dpkg --add-architecture armhf && \
     apt-get update && \
@@ -7,7 +7,7 @@ RUN dpkg --add-architecture armhf && \
       build-essential \
       gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
       libsdl2-dev:armhf libsdl2-image-dev:armhf libsdl2-ttf-dev:armhf \
-      libavformat-dev:armhf libavcodec-dev:armhf libavutil-dev:armhf libswscale-dev:armhf \
+      libavformat-dev:armhf libavcodec-dev:armhf libavutil-dev:armhf libswscale-dev:armhf libswresample-dev:armhf \
       libfreetype6-dev:armhf libpng-dev:armhf zlib1g-dev:armhf \
       pkg-config:armhf \
       sudo \
